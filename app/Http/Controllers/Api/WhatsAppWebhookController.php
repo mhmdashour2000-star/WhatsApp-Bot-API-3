@@ -78,6 +78,26 @@ class WhatsAppWebhookController extends Controller
                                 'trace' => $e->getTraceAsString(),
                             ]);
                         }
+                    } elseif ($from && $type === 'interactive') {
+                        $interactive = $message['interactive'] ?? [];
+                        $subtype = $interactive['type'] ?? '';
+                        $payloadId = '';
+                        if ($subtype === 'button_reply') {
+                            $payloadId = $interactive['button_reply']['id'] ?? '';
+                        } elseif ($subtype === 'list_reply') {
+                            $payloadId = $interactive['list_reply']['id'] ?? '';
+                        }
+                        if ($payloadId !== '') {
+                            try {
+                                $this->botService->handleIncomingMessage($from, $payloadId);
+                            } catch (\Throwable $e) {
+                                Log::error('[WhatsApp Bot Error] ' . $e->getMessage(), [
+                                    'from' => $from,
+                                    'interactive_id' => $payloadId,
+                                    'trace' => $e->getTraceAsString(),
+                                ]);
+                            }
+                        }
                     }
                 }
             }
