@@ -32,6 +32,12 @@ class WhatsAppBotConversationService
             ['phone_number' => $cleanPhone],
             ['current_state' => 'MAIN_MENU', 'state_payload' => []]
         );
+        // Session expiration: if idle >15 minutes, reset to main menu
+        $expirationMinutes = 15;
+        if ($session->last_interaction_at && Carbon::parse($session->last_interaction_at)->diffInMinutes(Carbon::now()) > $expirationMinutes) {
+            $this->resetToMainMenu($session, $cleanPhone);
+            return;
+        }
 
         // Quick cancel command / restart anywhere
         if (in_array(strtolower($text), ['0', 'الغاء', 'إلغاء', 'خروج', 'menu', 'قائمة', 'ابدأ'])) {
@@ -202,11 +208,30 @@ class WhatsAppBotConversationService
     protected function handleKvkkConsent(WhatsappSession $session, string $phone, string $text, array $payload): void
     {
         if ($text === '1' || $text === 'kvkk_yes') {
-            $session->update([
-                'current_state' => 'AWAITING_NEW_PATIENT_NAME',
-                'state_payload' => array_merge($payload, ['kvkk_accepted' => true]),
-            ]);
-            $this->apiService->sendTextMessage($phone, "شكراً لموافقتك. يرجى الآن كتابة *الاسم الثلاثي* للمريض:");
+            // Consent accepted
+            $payload = array_merge($payload, ['kvkk_accepted' => true]);
+            // Determine if we have an existing patient context
+            if (isset($payload['patient_id'])) {
+                $patient = Patient::find($payload['patient_id']);
+                if ($patient && $patient->is_blocked) {
+                    $this->apiService->sendTextMessage($phone, "عذراً، لا يمكن حجز موعد لأن حساب المريض محظور. يرجى التواصل مع العيادة.");
+                    $this->resetToMainMenu($session, $phone);
+                    return;
+                }
+                // Proceed directly to specialty selection for existing patient
+                $session->update([
+                    'current_state' => 'SELECTING_SPECIALTY',
+                    'state_payload' => $payload,
+                ]);
+                $this->displaySpecialties($phone, $session, $payload['patient_id']);
+            } else {
+                // New patient flow – ask for full name
+                $session->update([
+                    'current_state' => 'AWAITING_NEW_PATIENT_NAME',
+                    'state_payload' => $payload,
+                ]);
+                $this->apiService->sendTextMessage($phone, "شكراً لموافقتك. يرجى الآن كتابة *الاسم الثلاثي* للمريض:");
+            }
         } else {
             $this->apiService->sendTextMessage($phone, "تم إلغاء العملية بناءً على رغبتك. يمكنك بدء المحادثة في أي وقت.");
             $this->resetToMainMenu($session, $phone);
