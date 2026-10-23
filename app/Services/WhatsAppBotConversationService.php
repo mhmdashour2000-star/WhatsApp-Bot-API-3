@@ -170,31 +170,30 @@ class WhatsAppBotConversationService
             'state_payload' => ['patients_list' => $patients->pluck('id')->toArray()],
         ]);
 
-        $msg = "يوجد عدة مرضى مسجلين بهذا الرقم. اختر المريض:\n";
-        foreach ($patients as $idx => $p) {
-            $num = $idx + 1;
-            $msg .= "{$num}️⃣ {$p->full_name}\n";
+        // Build list rows for patients
+        $rows = [];
+        foreach ($patients as $p) {
+            $rows[] = [
+                'id' => 'patient_' . $p->id,
+                'title' => $p->full_name,
+            ];
         }
-        $addNewNum = $patients->count() + 1;
-        $msg .= "{$addNewNum}️⃣ إضافة مريض جديد برقمك\n";
-        $this->apiService->sendTextMessage($phone, $msg);
-        return;
-
-        // Multiple family members under one phone
+        // Add option for new patient
+        $rows[] = [
+            'id' => 'new_patient',
+            'title' => 'إضافة مريض جديد',
+        ];
+        $sections = [
+            ['title' => 'المرضى', 'rows' => $rows],
+        ];
+        $body = "اختر المريض من القائمة:";
+        $buttonText = "اختر المريض";
+        // Update session payload for list handling
         $session->update([
             'current_state' => 'SELECTING_PATIENT',
             'state_payload' => ['patients_list' => $patients->pluck('id')->toArray()],
         ]);
-
-        $msg = "يوجد عدة مرضى مسجلين بهذا الرقم. اختر المريض:\n";
-        foreach ($patients as $idx => $p) {
-            $num = $idx + 1;
-            $msg .= "{$num}️⃣ {$p->full_name}\n";
-        }
-        $addNewNum = $patients->count() + 1;
-        $msg .= "{$addNewNum}️⃣ إضافة مريض جديد برقمك\n";
-
-        $this->apiService->sendTextMessage($phone, $msg);
+        $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
     }
 
     /**
@@ -256,10 +255,28 @@ class WhatsAppBotConversationService
             return;
         }
 
-        // Multiple patients choice (previous flow) – select a patient then ask consent
+        // Try to handle button IDs first
+        if (Str::startsWith($choice, 'patient_')) {
+            $selectedId = (int) substr($choice, 8);
+            $session->update([
+                'current_state' => 'AWAITING_KVKK_CONSENT',
+                'state_payload' => ['patient_id' => $selectedId],
+            ]);
+            $this->sendKvkkConsentMessage($session, $phone, ['patient_id' => $selectedId]);
+            return;
+        }
+        if ($choice === 'new_patient') {
+            $session->update([
+                'current_state' => 'AWAITING_NEW_PATIENT_NAME',
+                'state_payload' => [],
+            ]);
+            $this->apiService->sendTextMessage($phone, "يرجى كتابة الاسم الثلاثي للشخص الجديد:");
+            return;
+        }
+
+        // Fallback to numeric list selection
         $patientIds = $payload['patients_list'] ?? [];
         $index = ((int) $choice) - 1;
-
         if ($index >= 0 && $index < count($patientIds)) {
             $selectedId = $patientIds[$index];
             $session->update([
@@ -299,13 +316,20 @@ class WhatsAppBotConversationService
             ],
         ]);
 
-        $msg = "اختر التخصص الطبي المطلوب:\n";
-        foreach ($specialties as $idx => $spec) {
-            $num = $idx + 1;
-            $msg .= "{$num}️⃣ {$spec->name}\n";
+        // Build list rows for specialties
+        $rows = [];
+        foreach ($specialties as $spec) {
+            $rows[] = [
+                'id' => 'specialty_' . $spec->id,
+                'title' => $spec->name,
+            ];
         }
-
-        $this->apiService->sendTextMessage($phone, $msg);
+        $sections = [
+            ['title' => 'التخصصات', 'rows' => $rows],
+        ];
+        $body = "اختر التخصص من القائمة:";
+        $buttonText = "اختر التخصص";
+        $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
     }
 
     /**
@@ -314,7 +338,13 @@ class WhatsAppBotConversationService
     protected function handleSelectSpecialty(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
         $specialtyIds = $payload['specialty_ids'] ?? [];
-        $index = ((int) $choice) - 1;
+        // Accept button ID or numeric fallback
+        if (Str::startsWith($choice, 'specialty_')) {
+            $selectedId = (int) substr($choice, 10);
+            $index = array_search($selectedId, $specialtyIds);
+        } else {
+            $index = ((int) $choice) - 1;
+        }
 
         if (!isset($specialtyIds[$index])) {
             $this->apiService->sendTextMessage($phone, "اختيار غير صحيح. يرجى اختيار رقم من القائمة.");
@@ -338,14 +368,21 @@ class WhatsAppBotConversationService
             ]),
         ]);
 
-        $msg = "اختر الطبيب:\n";
-        foreach ($doctors as $idx => $doc) {
-            $num = $idx + 1;
+        // Build list rows for doctors
+        $rows = [];
+        foreach ($doctors as $doc) {
             $title = $doc->title ? "({$doc->title})" : "";
-            $msg .= "{$num}️⃣ {$doc->full_name} {$title}\n";
+            $rows[] = [
+                'id' => 'doctor_' . $doc->id,
+                'title' => trim("{$doc->full_name} {$title}"),
+            ];
         }
-
-        $this->apiService->sendTextMessage($phone, $msg);
+        $sections = [
+            ['title' => 'الأطباء', 'rows' => $rows],
+        ];
+        $body = "اختر الطبيب من القائمة:";
+        $buttonText = "اختر الطبيب";
+        $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
     }
 
     /**
@@ -354,7 +391,13 @@ class WhatsAppBotConversationService
     protected function handleSelectDoctor(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
         $doctorIds = $payload['doctor_ids'] ?? [];
-        $index = ((int) $choice) - 1;
+        // Accept button ID or numeric fallback
+        if (Str::startsWith($choice, 'doctor_')) {
+            $selectedId = (int) substr($choice, 7);
+            $index = array_search($selectedId, $doctorIds);
+        } else {
+            $index = ((int) $choice) - 1;
+        }
 
         if (!isset($doctorIds[$index])) {
             $this->apiService->sendTextMessage($phone, "اختيار غير صحيح. يرجى اختيار رقم الطبيب من القائمة.");
@@ -380,13 +423,20 @@ class WhatsAppBotConversationService
             ]),
         ]);
 
-        $msg = "المواعيد المتاحة للطبيب *{$doctor->full_name}*:\nاختر التاريخ المناسب:\n";
-        foreach ($availableDates as $idx => $d) {
-            $num = $idx + 1;
-            $msg .= "{$num}️⃣ {$d['day_name']} ({$d['date']})\n";
+        // Build list rows for dates
+        $rows = [];
+        foreach ($availableDates as $d) {
+            $rows[] = [
+                'id' => 'date_' . $d['date'],
+                'title' => "{$d['day_name']} ({$d['date']})",
+            ];
         }
-
-        $this->apiService->sendTextMessage($phone, $msg);
+        $sections = [
+            ['title' => 'التواريخ المتاحة', 'rows' => $rows],
+        ];
+        $body = "اختر التاريخ المناسب للموعد:";
+        $buttonText = "اختر التاريخ";
+        $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
     }
 
     /**
@@ -397,12 +447,17 @@ class WhatsAppBotConversationService
         $availableDates = $payload['available_dates'] ?? [];
         $index = ((int) $choice) - 1;
 
-        if (!isset($availableDates[$index])) {
-            $this->apiService->sendTextMessage($phone, "تاريخ غير صحيح. يرجى اختيار رقم اليوم من القائمة.");
-            return;
+        // Accept button ID or numeric fallback
+        if (Str::startsWith($choice, 'date_')) {
+            $selectedDate = substr($choice, 5);
+        } else {
+            $index = ((int) $choice) - 1;
+            if (!isset($availableDates[$index])) {
+                $this->apiService->sendTextMessage($phone, "تاريخ غير صحيح. يرجى اختيار رقم اليوم من القائمة.");
+                return;
+            }
+            $selectedDate = $availableDates[$index]['date'];
         }
-
-        $selectedDate = $availableDates[$index]['date'];
         $doctor = Doctor::find($payload['doctor_id']);
 
         $slots = $this->bookingService->getAvailableSlots($doctor, $selectedDate);
@@ -420,13 +475,20 @@ class WhatsAppBotConversationService
             ]),
         ]);
 
-        $msg = "الأوقات المتاحة ليوم ({$selectedDate}):\n";
+        // Build list rows for slots (use index as id)
+        $rows = [];
         foreach ($slots as $idx => $s) {
-            $num = $idx + 1;
-            $msg .= "{$num}️⃣ {$s['display']}\n";
+            $rows[] = [
+                'id' => 'slot_' . $idx,
+                'title' => $s['display'],
+            ];
         }
-
-        $this->apiService->sendTextMessage($phone, $msg);
+        $sections = [
+            ['title' => 'الأوقات المتاحة', 'rows' => $rows],
+        ];
+        $body = "اختر الوقت المناسب ليوم {$selectedDate}:";
+        $buttonText = "اختر الوقت";
+        $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
     }
 
     /**
@@ -437,6 +499,12 @@ class WhatsAppBotConversationService
         $slots = $payload['available_slots'] ?? [];
         $index = ((int) $choice) - 1;
 
+        // Accept button ID (slot_{index}) or numeric fallback
+        if (Str::startsWith($choice, 'slot_')) {
+            $index = (int) substr($choice, 5);
+        } else {
+            $index = ((int) $choice) - 1;
+        }
         if (!isset($slots[$index])) {
             $this->apiService->sendTextMessage($phone, "الوقت المختار غير صحيح. أرسل رقم الوقت من القائمة أعلاه.");
             return;
@@ -473,10 +541,16 @@ class WhatsAppBotConversationService
                  . "⏰ الوقت: *{$slot['display']}*\n\n"
                  . "⚠️ الموعد محجوز لك مؤقتاً لمدة ({$holdMin}) دقائق.\n"
                  . "لتأكيد الحجز نهائياً أرسل:\n"
-                 . "1️⃣ نعم، تأكيد الحجز\n"
-                 . "2️⃣ إلغاء";
+                 . "✅ نعم\n"
+                 . "❌ لا";
 
-            $this->apiService->sendTextMessage($phone, $msg);
+            // Use button message for confirmation (max 2 buttons)
+            $buttons = [
+                ['type' => 'reply', 'reply' => ['id' => 'confirm_yes', 'title' => '✅ نعم']],
+                ['type' => 'reply', 'reply' => ['id' => 'confirm_no', 'title' => '❌ لا']],
+            ];
+            $this->apiService->sendButtonMessage($phone, $msg, $buttons);
+
 
         } catch (Throwable $e) {
             $this->apiService->sendTextMessage($phone, "⚠️ " . $e->getMessage());
@@ -499,8 +573,22 @@ class WhatsAppBotConversationService
             return;
         }
 
-        if ($choice === '1') {
+        // Accept both button IDs and numeric fallbacks
+        if ($choice === '1' || $choice === 'confirm_yes') {
             try {
+                // Re‑validate slot availability before confirming (using same service call that holds slot)
+                $doctor = Doctor::find($payload['doctor_id']);
+                $slot = $payload['slot_display']; // stored display string
+                $availableSlots = $this->bookingService->getAvailableSlots($doctor, $payload['selected_date']);
+                $slotStillAvailable = collect($availableSlots)->contains(function($s) use ($slot) {
+                    return $s['display'] === $slot;
+                });
+                if (!$slotStillAvailable) {
+                    // Slot no longer available – refresh slot list
+                    $this->handleSelectDate($session, $phone, (string) array_search($payload['selected_date'], array_column($payload['available_dates'], 'date')) + 1, $payload);
+                    return;
+                }
+
                 $confirmed = $this->bookingService->confirmAppointment($appointment);
 
                 $msg = "✅ *تم تأكيد حجز موعدك بنجاح!*\n\n"
@@ -520,6 +608,7 @@ class WhatsAppBotConversationService
                 $this->resetToMainMenu($session, $phone);
             }
         } else {
+            // Cancellation path (button or numeric '2')
             $appointment->update([
                 'status' => 'cancelled_by_patient',
                 'cancellation_reason' => 'ألغاه المريض قبل التأكيد النهائي',
