@@ -18,6 +18,7 @@ class WhatsAppBotTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        \Illuminate\Support\Facades\Config::set('services.whatsapp.app_secret', null);
         $this->seed(ClinicSeeder::class);
     }
 

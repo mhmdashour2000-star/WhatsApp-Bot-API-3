@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Appointment;
+use Illuminate\Support\Str;
 use App\Models\ClinicSetting;
 use App\Models\Doctor;
 use App\Models\Patient;
@@ -100,14 +101,15 @@ class WhatsAppBotConversationService
             'last_interaction_at' => Carbon::now(),
         ]);
 
-        $msg = "أهلاً بك في {$clinicName} 🏥\n\n"
-             . "يرجى اختيار الخدمة المطلوبة بإرسال الرقم:\n"
-             . "1️⃣ حجز موعد جديد\n"
-             . "2️⃣ استعراض مواعيدي القادمة\n"
-             . "3️⃣ إلغاء موعد قائم\n\n"
-             . "💡 (يمكنك إرسال الرقم 0 في أي وقت للعودة للقائمة الرئيسية)";
-
-        $this->apiService->sendTextMessage($phone, $msg);
+        // Interactive main menu using reply buttons
+        $buttons = [
+            ['type' => 'reply', 'reply' => ['id' => 'main_menu_book', 'title' => '📅 حجز موعد جديد']],
+            ['type' => 'reply', 'reply' => ['id' => 'main_menu_view', 'title' => '👀 استعراض مواعيدي القادمة']],
+            ['type' => 'reply', 'reply' => ['id' => 'main_menu_cancel', 'title' => '❌ إلغاء موعد قائم']],
+        ];
+        $header = "أهلاً بك في {$clinicName} 🏥";
+        $body = "يرجى اختيار الخدمة المطلوبة:";
+        $this->apiService->sendButtonMessage($phone, $header, $body, $buttons);
     }
 
     /**
@@ -115,11 +117,11 @@ class WhatsAppBotConversationService
      */
     protected function handleMainMenu(WhatsappSession $session, string $phone, string $choice): void
     {
-        if ($choice === '1') {
+        if ($choice === '1' || $choice === 'main_menu_book') {
             $this->initiateBookingFlow($session, $phone);
-        } elseif ($choice === '2') {
+        } elseif ($choice === '2' || $choice === 'main_menu_view') {
             $this->showUpcomingAppointments($session, $phone);
-        } elseif ($choice === '3') {
+        } elseif ($choice === '3' || $choice === 'main_menu_cancel') {
             $this->initiateCancellationFlow($session, $phone);
         } else {
             $this->apiService->sendTextMessage($phone, "عذراً، الخيار غير صحيح. يرجى إرسال 1 لحجز موعد، أو 2 لاستعراض المواعيد، أو 3 للإلغاء.");
@@ -140,34 +142,43 @@ class WhatsAppBotConversationService
                 'current_state' => 'AWAITING_KVKK_CONSENT',
                 'state_payload' => [],
             ]);
-
-            $msg = "📋 إشعار الخصوصية وحماية البيانات الشخصية (KVKK):\n"
-                 . "نحن نحرص على حماية بياناتك وفق القانون رقم 6698. نقوم فقط بمعالجة بيانات الحجز الأساسية (الاسم والموعد) لجدولة زيارتك.\n"
-                 . "رابط سياسة الخصوصية: {$kvkkUrl}\n\n"
-                 . "هل توافق على الشروط لمتابعة الحجز؟\n"
-                 . "1️⃣ نعم، أوافق\n"
-                 . "2️⃣ لا أوافق (إلغاء)";
-
-            $this->apiService->sendTextMessage($phone, $msg);
+            $this->sendKvkkConsentMessage($session, $phone, []);
             return;
         }
 
+        // Existing patients (single or multiple) - first select patient, then KVKK consent
         if ($patients->count() === 1) {
             $patient = $patients->first();
             $session->update([
                 'current_state' => 'SELECTING_PATIENT',
                 'state_payload' => ['patient_id' => $patient->id, 'single_existing' => true],
             ]);
-
+            // Directly proceed to KVKK consent for the known patient
             $msg = "مرحباً بك مجدداً!\n"
                  . "هل ترغب بالحجز للمريض:\n"
                  . "👤 *{$patient->full_name}*\n\n"
                  . "1️⃣ متابعة الحجز بهذا الاسم\n"
                  . "2️⃣ حجز لشخص آخر برقمك (فرد من العائلة)";
-
             $this->apiService->sendTextMessage($phone, $msg);
+            // After patient confirmation (handled in handleSelectPatient), KVKK will be asked.
             return;
         }
+
+        // Multiple patients – let user select then KVKK will be asked
+        $session->update([
+            'current_state' => 'SELECTING_PATIENT',
+            'state_payload' => ['patients_list' => $patients->pluck('id')->toArray()],
+        ]);
+
+        $msg = "يوجد عدة مرضى مسجلين بهذا الرقم. اختر المريض:\n";
+        foreach ($patients as $idx => $p) {
+            $num = $idx + 1;
+            $msg .= "{$num}️⃣ {$p->full_name}\n";
+        }
+        $addNewNum = $patients->count() + 1;
+        $msg .= "{$addNewNum}️⃣ إضافة مريض جديد برقمك\n";
+        $this->apiService->sendTextMessage($phone, $msg);
+        return;
 
         // Multiple family members under one phone
         $session->update([
@@ -191,7 +202,7 @@ class WhatsAppBotConversationService
      */
     protected function handleKvkkConsent(WhatsappSession $session, string $phone, string $text, array $payload): void
     {
-        if ($text === '1') {
+        if ($text === '1' || $text === 'kvkk_yes') {
             $session->update([
                 'current_state' => 'AWAITING_NEW_PATIENT_NAME',
                 'state_payload' => array_merge($payload, ['kvkk_accepted' => true]),
@@ -233,35 +244,29 @@ class WhatsAppBotConversationService
      */
     protected function handleSelectPatient(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
-        if (!empty($payload['single_existing'])) {
-            if ($choice === '1') {
-                $session->update([
-                    'current_state' => 'SELECTING_SPECIALTY',
-                    'state_payload' => ['patient_id' => $payload['patient_id']],
-                ]);
-                $this->displaySpecialties($phone, $session, $payload['patient_id']);
-                return;
-            } elseif ($choice === '2') {
-                $session->update([
-                    'current_state' => 'AWAITING_NEW_PATIENT_NAME',
-                    'state_payload' => [],
-                ]);
-                $this->apiService->sendTextMessage($phone, "يرجى كتابة الاسم الثلاثي للشخص الجديد:");
-                return;
-            }
+        // After patient is confirmed (either existing single or selected from list), request KVKK consent.
+        $patientId = $payload['patient_id'] ?? null;
+        if ($patientId) {
+            // patient already known, go to consent
+            $session->update([
+                'current_state' => 'AWAITING_KVKK_CONSENT',
+                'state_payload' => ['patient_id' => $patientId],
+            ]);
+            $this->sendKvkkConsentMessage($session, $phone, ['patient_id' => $patientId]);
+            return;
         }
 
-        // Multiple patients choice
+        // Multiple patients choice (previous flow) – select a patient then ask consent
         $patientIds = $payload['patients_list'] ?? [];
         $index = ((int) $choice) - 1;
 
         if ($index >= 0 && $index < count($patientIds)) {
             $selectedId = $patientIds[$index];
             $session->update([
-                'current_state' => 'SELECTING_SPECIALTY',
+                'current_state' => 'AWAITING_KVKK_CONSENT',
                 'state_payload' => ['patient_id' => $selectedId],
             ]);
-            $this->displaySpecialties($phone, $session, $selectedId);
+            $this->sendKvkkConsentMessage($session, $phone, ['patient_id' => $selectedId]);
         } elseif ($index === count($patientIds)) {
             $session->update([
                 'current_state' => 'AWAITING_NEW_PATIENT_NAME',
@@ -627,4 +632,19 @@ class WhatsAppBotConversationService
             $this->resetToMainMenu($session, $phone);
         }
     }
+    /**
+     * Send KVKK consent prompt with Yes/No buttons.
+     */
+    protected function sendKvkkConsentMessage(WhatsappSession $session, string $phone, array $payload): void
+    {
+        $header = '⚖️ موافقة KVKK';
+        $body = "لتأكيد حجزك، يرجى موافقتك على سياسة حماية البيانات (KVKK).\n"
+            . "اضغط ✅ للموافقة أو ❌ للرفض.";
+        $buttons = [
+            ['type' => 'reply', 'reply' => ['id' => 'kvkk_yes', 'title' => '✅ نعم']],
+            ['type' => 'reply', 'reply' => ['id' => 'kvkk_no', 'title' => '❌ لا']],
+        ];
+        $this->apiService->sendButtonMessage($phone, $body, $buttons, $header);
+    }
 }
+
