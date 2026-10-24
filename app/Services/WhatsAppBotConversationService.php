@@ -89,6 +89,10 @@ class WhatsAppBotConversationService
                 $this->handleSelectCancelAppointment($session, $cleanPhone, $text, $payload);
                 break;
 
+            case 'CONFIRMING_CANCELLATION':
+                $this->handleConfirmCancellation($session, $cleanPhone, $text, $payload);
+                break;
+
             default:
                 $this->resetToMainMenu($session, $cleanPhone);
                 break;
@@ -615,6 +619,12 @@ class WhatsAppBotConversationService
                 }
 
                 $confirmed = $this->bookingService->confirmAppointment($appointment);
+if (!empty($payload['kvkk_accepted'])) {
+    $confirmed->update([
+        'kvkk_consent_accepted' => true,
+        'kvkk_consent_date' => Carbon::now(),
+    ]);
+}
 
                 $msg = "✅ *تم تأكيد حجز موعدك بنجاح!*\n\n"
                      . "🏷️ رقم الحجز المرجعي: *{$confirmed->reference_code}*\n"
@@ -633,13 +643,12 @@ class WhatsAppBotConversationService
                 $this->resetToMainMenu($session, $phone);
             }
         } else {
-            // Cancellation path (button or numeric '2')
+            // Treat as cancellation of the provisional hold
             $appointment->update([
                 'status' => 'cancelled_by_patient',
-                'cancellation_reason' => 'ألغاه المريض قبل التأكيد النهائي',
+                'cancellation_reason' => 'Cancelled by patient before final confirmation',
                 'cancelled_at' => Carbon::now(),
             ]);
-
             $this->apiService->sendTextMessage($phone, "تم إلغاء طلب الحجز وإتاحة الموعد للآخرين.");
             $this->resetToMainMenu($session, $phone);
         }
@@ -676,10 +685,11 @@ class WhatsAppBotConversationService
                  . "⏰ الوقت: " . substr($a->start_time, 0, 5) . "\n\n";
         }
 
+        // Send the list of upcoming appointments and return to the main menu
         $this->apiService->sendTextMessage($phone, $msg);
         $this->resetToMainMenu($session, $phone);
-    }
 
+    }
     /**
      * Step 3: Cancellation Flow.
      */
@@ -722,6 +732,7 @@ class WhatsAppBotConversationService
      */
     protected function handleSelectCancelAppointment(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
+        // This method now only parses numeric selection; actual cancellation occurs after confirmation.
         $cancellableIds = $payload['cancellable_ids'] ?? [];
         $index = ((int) $choice) - 1;
 
@@ -731,20 +742,64 @@ class WhatsAppBotConversationService
         }
 
         $appointment = Appointment::find($cancellableIds[$index]);
+        if (!$appointment) {
+            $this->apiService->sendTextMessage($phone, "الموعد غير موجود. حاول مرة أخرى.");
+            $this->resetToMainMenu($session, $phone);
+            return;
+        }
 
-        try {
-            $this->bookingService->cancelAppointment($appointment, 'إلغاء عبر بوت الواتساب بناءً على طلب المريض', 'patient');
+        // Store for confirmation
+        $session->update([
+            'current_state' => 'CONFIRMING_CANCELLATION',
+            'state_payload' => ['appointment_id' => $appointment->id],
+        ]);
+        $confirmMsg = "هل تريد إلغاء الموعد [{$appointment->reference_code}] مع {$appointment->doctor->full_name} في {$appointment->appointment_date->format('Y-m-d')}؟";
+        $buttons = [
+            ['type' => 'reply', 'reply' => ['id' => 'cancel_yes', 'title' => '✅ نعم']],
+            ['type' => 'reply', 'reply' => ['id' => 'cancel_no', 'title' => '❌ لا']],
+        ];
+        $this->apiService->sendButtonMessage($phone, $confirmMsg, $buttons);
+    }
 
-            $msg = "✅ تم إلغاء موعدك [{$appointment->reference_code}] بنجاح.\n"
-                 . "نتطلع لخدمتك في وقت لاحق! 🌸";
+    protected function handleConfirmCancellation(WhatsappSession $session, string $phone, string $choice, array $payload): void
+    {
+        $appointmentId = $payload['appointment_id'] ?? null;
+        $appointment = Appointment::find($appointmentId);
 
+        if (!$appointment) {
+            $this->apiService->sendTextMessage($phone, "الموعد غير موجود أو تم حذفه مسبقاً.");
+            $this->resetToMainMenu($session, $phone);
+            return;
+        }
+
+        // Verify patient ownership safely
+        $patient = $appointment->patient;
+        if (!$patient || $patient->primary_phone !== $phone) {
+            $this->apiService->sendTextMessage($phone, "ليس لديك صلاحية إلغاء هذا الموعد.");
+            $this->resetToMainMenu($session, $phone);
+            return;
+        }
+
+        // Check if appointment is still cancellable
+        $nonCancellable = ['cancelled_by_patient', 'cancelled_by_clinic', 'completed'];
+        if (in_array($appointment->status, $nonCancellable)) {
+            $this->apiService->sendTextMessage($phone, "لا يمكن إلغاء الموعد لأنه غير قابل للإلغاء حالياً.");
+            $this->resetToMainMenu($session, $phone);
+            return;
+        }
+
+        if (in_array(strtolower($choice), ['cancel_yes', 'yes', '1'])) {
+            // Perform cancellation via booking service
+            $this->bookingService->cancelAppointment($appointment, 'Cancelled by patient', 'patient');
+            $msg = "✅ تم إلغاء الموعد [{$appointment->reference_code}] مع {$appointment->doctor->full_name} في {$appointment->appointment_date->format('Y-m-d')} الساعة " . substr($appointment->start_time, 0, 5) . ".";
             $this->apiService->sendTextMessage($phone, $msg);
             $this->resetToMainMenu($session, $phone);
-
-        } catch (Throwable $e) {
-            $this->apiService->sendTextMessage($phone, "⚠️ " . $e->getMessage());
-            $this->resetToMainMenu($session, $phone);
+            return;
         }
+
+        // cancel_no or other response – abort cancellation flow
+        $this->apiService->sendTextMessage($phone, "تم إلغاء طلب الإلغاء. عودة للقائمة الرئيسية.");
+        $this->resetToMainMenu($session, $phone);
     }
     /**
      * Send KVKK consent prompt with Yes/No buttons.

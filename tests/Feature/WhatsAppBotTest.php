@@ -59,7 +59,7 @@ class WhatsAppBotTest extends TestCase
         ];
 
         $response = $this->postJson('/api/v1/whatsapp/webhook', $payload);
-        $response->assertStatus(200);
+        $this->assertEquals(200, $response->status());
 
         // Session created in MAIN_MENU
         $session = WhatsappSession::where('phone_number', '905559876543')->first();
