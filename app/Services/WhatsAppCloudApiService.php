@@ -65,14 +65,23 @@ class WhatsAppCloudApiService
     {
         $actionButtons = [];
         foreach (array_slice($buttons, 0, 3) as $btn) {
-            $actionButtons[] = [
-                'type' => 'reply',
-                'reply' => [
-                    'id' => (string) mb_substr($btn['id'], 0, 256, 'UTF-8'),
-                    'title' => (string) mb_substr($btn['title'], 0, 20, 'UTF-8'),
-                ],
-            ];
-        }
+    // Accept both flat buttons and WhatsApp-style nested reply buttons.
+    $reply = $btn['reply'] ?? $btn;
+
+    if (!isset($reply['id'], $reply['title'])) {
+        throw new \InvalidArgumentException(
+            'Each button must contain an id and title.'
+        );
+    }
+
+    $actionButtons[] = [
+        'type' => 'reply',
+        'reply' => [
+            'id' => (string) mb_substr((string) $reply['id'], 0, 256, 'UTF-8'),
+            'title' => (string) mb_substr((string) $reply['title'], 0, 20, 'UTF-8'),
+        ],
+    ];
+}
 
         $interactive = [
             'type' => 'button',

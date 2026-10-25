@@ -11,10 +11,12 @@ class WhatsappSession extends Model
         'current_state',
         'state_payload',
         'last_interaction_at',
+        'last_message_id',
     ];
 
     protected $casts = [
         'state_payload' => 'array',
         'last_interaction_at' => 'datetime',
+        'last_message_id' => 'string',
     ];
 }

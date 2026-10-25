@@ -36,6 +36,8 @@ class WhatsAppFlowService
             ['phone_number' => $cleanPhone],
             ['current_state' => 'MAIN_MENU', 'state_payload' => []]
         );
+        // Initialize payload for the session
+        $payload = $session->state_payload ?? [];
 
         // Session timeout – reset after 15 minutes of inactivity
         if ($session->last_interaction_at && Carbon::parse($session->last_interaction_at)->diffInMinutes(Carbon::now()) > 15) {
@@ -43,24 +45,25 @@ class WhatsAppFlowService
             return;
         }
 
-        // Global cancel/restart command
-        if (in_array(strtolower($text), ['0', 'الغاء', 'إلغاء', 'خروج', 'menu', 'قائمة', 'ابدأ'])) {
+
+
+        // Show main menu immediately on first interaction (no previous state payload)
+        if ($session->current_state === 'MAIN_MENU' && empty($payload) && $session->last_interaction_at === null) {
             $this->resetToMainMenu($session, $cleanPhone);
             return;
         }
 
         $state = $session->current_state;
-        $payload = $session->state_payload ?? [];
 
         // Update interaction timestamp for active session
         $session->update(['last_interaction_at' => Carbon::now()]);
-        // Global flow cancel/restart via button IDs
-        if (in_array(strtolower($text), ['flow_cancel', 'flow_restart'])) {
+        // Global flow cancel/restart via button IDs and common keywords
+        if (in_array(strtolower($text), ['flow_cancel', 'flow_restart', '0', 'الغاء', 'إلغاء', 'خروج', 'menu', 'قائمة', 'ابدأ'])) {
             // If there's a holding appointment, cancel it safely
             if (!empty($payload['appointment_id'])) {
                 $holding = Appointment::find($payload['appointment_id']);
                 if ($holding && $holding->status === 'holding') {
-                    $holding->update(['status' => 'cancelled_by_clinic', 'cancellation_reason' => 'Flow cancelled', 'cancelled_at' => Carbon::now()]);
+                    $holding->update(['status' => 'cancelled_by_clinic', 'cancellation_reason' => 'Flow cancelled by user', 'cancelled_at' => Carbon::now()]);
                 }
             }
             $this->resetToMainMenu($session, $cleanPhone);
@@ -454,10 +457,20 @@ class WhatsAppFlowService
             $this->apiService->sendTextMessage($phone, "الوقت المختار غير صحيح. أرسل رقم الوقت من القائمة أعلاه.");
             return;
         }
+        if (!isset($slots[$index])) {
+            $this->apiService->sendTextMessage($phone, "الوقت المختار غير صالح. يرجى اختيار وقت من القائمة عبر الزر.");
+            return;
+        }
         $slot = $slots[$index];
         $doctor = Doctor::find($payload['doctor_id']);
         $patient = Patient::find($payload['patient_id']);
+        // Ensure the slot identifier exists and is valid
+        if (!isset($payload['available_slots'][$index])) {
+            $this->apiService->sendTextMessage($phone, "الوقت المختار غير موجود. أعد اختيار الوقت.");
+            return;
+        }
         try {
+            // Hold the selected slot for the patient
             $holdingAppt = $this->bookingService->holdSlot(
                 $patient,
                 $doctor,
@@ -485,6 +498,7 @@ class WhatsAppFlowService
                 ['type' => 'reply', 'reply' => ['id' => 'confirm_yes', 'title' => '✅ نعم']],
                 ['type' => 'reply', 'reply' => ['id' => 'confirm_no', 'title' => '❌ لا']],
             ];
+            // Slots list is sent as a button message; the $msg is the body text
             $this->apiService->sendButtonMessage($phone, $msg, $buttons); // correct order already matches signature
         } catch (Throwable $e) {
             $this->apiService->sendTextMessage($phone, "⚠️ " . $e->getMessage());
@@ -630,6 +644,7 @@ class WhatsAppFlowService
             ['type' => 'reply', 'reply' => ['id' => 'cancel_yes', 'title' => '✅ نعم']],
             ['type' => 'reply', 'reply' => ['id' => 'cancel_no', 'title' => '❌ لا']],
         ];
+        // Confirmation of cancellation uses button message with proper order
         $this->apiService->sendButtonMessage($phone, $confirmMsg, $buttons); // correct order
     }
 
