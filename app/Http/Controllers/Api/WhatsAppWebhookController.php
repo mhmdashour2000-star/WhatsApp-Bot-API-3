@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\WhatsAppBotConversationService;
+use App\Services\WhatsAppFlowService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Log;
 class WhatsAppWebhookController extends Controller
 {
     public function __construct(
-        protected WhatsAppBotConversationService $botService
+        protected WhatsAppFlowService $flowService
     ) {}
 
     /**
@@ -70,7 +70,7 @@ class WhatsAppWebhookController extends Controller
                     if ($from && $type === 'text') {
                         $textBody = $message['text']['body'] ?? '';
                         try {
-                            $this->botService->handleIncomingMessage($from, $textBody);
+                            $this->flowService->handle($from, $textBody);
                         } catch (\Throwable $e) {
                             Log::error('[WhatsApp Bot Error] ' . $e->getMessage(), [
                                 'from' => $from,
@@ -89,7 +89,7 @@ class WhatsAppWebhookController extends Controller
                         }
                         if ($payloadId !== '') {
                             try {
-                                $this->botService->handleIncomingMessage($from, $payloadId);
+                                $this->flowService->handle($from, $payloadId);
                             } catch (\Throwable $e) {
                                 Log::error('[WhatsApp Bot Error] ' . $e->getMessage(), [
                                     'from' => $from,
