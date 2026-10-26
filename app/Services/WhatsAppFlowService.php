@@ -12,6 +12,18 @@ use Carbon\Carbon;
 use Illuminate\Support\Str;
 use Throwable;
 
+namespace App\Services;
+
+use App\Models\Appointment;
+use App\Models\ClinicSetting;
+use App\Models\Doctor;
+use App\Models\Patient;
+use App\Models\Specialty;
+use App\Models\WhatsappSession;
+use Carbon\Carbon;
+use Illuminate\Support\Str;
+use Throwable;
+
 /**
  * Fresh implementation of the WhatsApp conversation flow.
  * Mirrors the original WhatsAppBotConversationService but is isolated under a new class name.
@@ -66,6 +78,23 @@ class WhatsAppFlowService
                     $holding->update(['status' => 'cancelled_by_clinic', 'cancellation_reason' => 'Flow cancelled by user', 'cancelled_at' => Carbon::now()]);
                 }
             }
+            $this->resetToMainMenu($session, $cleanPhone);
+            return;
+        }
+        // Handle navigation payloads from interactive lists
+        if ($text === 'main_menu') {
+            $this->resetToMainMenu($session, $cleanPhone);
+            return;
+        }
+        if ($text === 'cancel_booking') {
+            // Cancel any ongoing booking flow and release holding appointment
+            if (!empty($payload['appointment_id'])) {
+                $holding = Appointment::find($payload['appointment_id']);
+                if ($holding && $holding->status === 'holding') {
+                    $holding->update(['status' => 'cancelled_by_patient', 'cancellation_reason' => 'User cancelled booking', 'cancelled_at' => Carbon::now()]);
+                }
+            }
+            $this->apiService->sendTextMessage($cleanPhone, "✅ تم إلغاء عملية الحجز. عودة إلى القائمة الرئيسية.");
             $this->resetToMainMenu($session, $cleanPhone);
             return;
         }
@@ -181,6 +210,9 @@ class WhatsAppFlowService
             $rows[] = ['id' => 'patient_' . $p->id, 'title' => $p->full_name];
         }
         $rows[] = ['id' => 'new_patient', 'title' => 'إضافة مريض جديد'];
+        // Add navigation rows
+        $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
+        $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
         $sections = [['title' => 'المرضى', 'rows' => $rows]];
         $body = "اختر المريض من القائمة:";
         $buttonText = "اختر المريض";
@@ -327,6 +359,9 @@ class WhatsAppFlowService
         foreach ($specialties as $spec) {
             $rows[] = ['id' => 'specialty_' . $spec->id, 'title' => $spec->name];
         }
+        // Navigation rows
+        $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
+        $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
         $sections = [['title' => 'التخصصات', 'rows' => $rows]];
         $body = "اختر التخصص من القائمة:";
         $buttonText = "اختر التخصص";
@@ -365,6 +400,9 @@ class WhatsAppFlowService
             $title = $doc->title ? "({$doc->title})" : '';
             $rows[] = ['id' => 'doctor_' . $doc->id, 'title' => trim("{$doc->full_name} {$title}")];
         }
+        // Navigation rows
+        $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
+        $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
         $sections = [['title' => 'الأطباء', 'rows' => $rows]];
         $body = "اختر الطبيب من القائمة:";
         $buttonText = "اختر الطبيب";
@@ -386,7 +424,7 @@ class WhatsAppFlowService
         }
         $doctorId = $doctorIds[$index];
         $doctor = Doctor::find($doctorId);
-        $availableDates = $this->bookingService->getAvailableDates($doctor, 10);
+        $availableDates = $this->bookingService->getAvailableDates($doctor, 8);
         if ($availableDates->isEmpty()) {
             $this->apiService->sendTextMessage($phone, "عذراً، لا توجد مواعيد متاحة لهذا الطبيب خلال الأيام القادمة.");
             $this->resetToMainMenu($session, $phone);
@@ -400,9 +438,12 @@ class WhatsAppFlowService
             ]),
         ]);
         $rows = [];
-        foreach ($availableDates as $d) {
+        foreach ($availableDates->take(8) as $d) {
             $rows[] = ['id' => 'date_' . $d['date'], 'title' => "{$d['day_name']} ({$d['date']})"];
         }
+        // Navigation rows
+        $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
+        $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
         $sections = [['title' => 'التواريخ المتاحة', 'rows' => $rows]];
         $body = "اختر التاريخ المناسب للموعد:";
         $buttonText = "اختر التاريخ";
@@ -428,17 +469,38 @@ class WhatsAppFlowService
             $this->apiService->sendTextMessage($phone, "عذراً، حُجزت جميع مواعيد هذا اليوم. يرجى اختيار تاريخ آخر.");
             return;
         }
+        $slotsArray = $slots->toArray();
         $session->update([
             'current_state' => 'SELECTING_SLOT',
             'state_payload' => array_merge($payload, [
                 'selected_date' => $selectedDate,
-                'available_slots' => $slots->toArray(),
+                'available_slots' => $slotsArray,
             ]),
         ]);
+        $page = $payload['slot_page'] ?? 1;
+        $totalSlots = count($slotsArray);
+        // WhatsApp interactive list has a hard maximum of 10 rows per list.
+        // Every page reserves 2 base navigation rows ('main_menu' and 'cancel_booking').
+        // Paginated pages may also include 'slot_page_prev' and 'slot_page_next' (up to 2 additional rows).
+        // A fixed capacity of 6 slots guarantees that even with all 4 navigation rows present,
+        // total rows (6 + 4 = 10) will never exceed WhatsApp's 10-row limit on any page.
+        $perPage = 6;
+        $offset = ($page - 1) * $perPage;
+
+        $pageSlots = array_slice($slotsArray, $offset, $perPage, true);
         $rows = [];
-        foreach ($slots as $idx => $s) {
+        foreach ($pageSlots as $idx => $s) {
             $rows[] = ['id' => 'slot_' . $idx, 'title' => $s['display']];
         }
+        // Navigation rows
+        if ($page > 1) {
+            $rows[] = ['id' => 'slot_page_prev', 'title' => 'السابق'];
+        }
+        if ($offset + count($pageSlots) < $totalSlots) {
+            $rows[] = ['id' => 'slot_page_next', 'title' => 'التالي'];
+        }
+        $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
+        $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
         $sections = [['title' => 'الأوقات المتاحة', 'rows' => $rows]];
         $body = "اختر الوقت المناسب ليوم {$selectedDate}:";
         $buttonText = "اختر الوقت";
@@ -448,6 +510,41 @@ class WhatsAppFlowService
     protected function handleSelectSlot(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
         $slots = $payload['available_slots'] ?? [];
+        // Handle pagination actions
+        if ($choice === 'slot_page_next' || $choice === 'slot_page_prev') {
+            $currentPage = $payload['slot_page'] ?? 1;
+            $newPage = $choice === 'slot_page_next' ? $currentPage + 1 : max(1, $currentPage - 1);
+            // Update payload with new page
+            $payload['slot_page'] = $newPage;
+            $session->update([
+                'state_payload' => $payload,
+            ]);
+            // Rebuild slot list for the new page with the exact same fixed page size
+            $selectedDate = $payload['selected_date'];
+            $slotsArray = $payload['available_slots'];
+            $totalSlots = count($slotsArray);
+            $perPage = 6;
+            $offset = ($newPage - 1) * $perPage;
+
+            $pageSlots = array_slice($slotsArray, $offset, $perPage, true);
+            $rows = [];
+            foreach ($pageSlots as $idx => $s) {
+                $rows[] = ['id' => 'slot_' . $idx, 'title' => $s['display']];
+            }
+            if ($newPage > 1) {
+                $rows[] = ['id' => 'slot_page_prev', 'title' => 'السابق'];
+            }
+            if ($offset + count($pageSlots) < $totalSlots) {
+                $rows[] = ['id' => 'slot_page_next', 'title' => 'التالي'];
+            }
+            $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
+            $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
+            $sections = [['title' => 'الأوقات المتاحة', 'rows' => $rows]];
+            $body = "اختر الوقت المناسب ليوم {$selectedDate}:";
+            $buttonText = "اختر الوقت";
+            $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
+            return;
+        }
         if (Str::startsWith($choice, 'slot_')) {
             $index = (int) substr($choice, 5);
         } else {
