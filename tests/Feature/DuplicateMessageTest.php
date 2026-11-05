@@ -70,7 +70,7 @@ class DuplicateMessageTest extends TestCase
         $response2b = $this->postJson('/api/v1/whatsapp/webhook', $payload2);
         $response2b->assertStatus(200);
         $session2 = WhatsappSession::where('phone_number', '1234567890')->first();
-        $this->assertEquals('AWAITING_KVKK_CONSENT', $session2->current_state);
+        $this->assertEquals('SELECTING_PATIENT', $session2->current_state);
         $this->assertEquals('wamid.HBgMNTU5...124', $session2->last_message_id);
     }
 }

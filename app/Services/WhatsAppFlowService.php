@@ -12,21 +12,8 @@ use Carbon\Carbon;
 use Illuminate\Support\Str;
 use Throwable;
 
-namespace App\Services;
-
-use App\Models\Appointment;
-use App\Models\ClinicSetting;
-use App\Models\Doctor;
-use App\Models\Patient;
-use App\Models\Specialty;
-use App\Models\WhatsappSession;
-use Carbon\Carbon;
-use Illuminate\Support\Str;
-use Throwable;
-
 /**
- * Fresh implementation of the WhatsApp conversation flow.
- * Mirrors the original WhatsAppBotConversationService but is isolated under a new class name.
+ * Implementation of the WhatsApp conversation flow for clinic booking.
  */
 class WhatsAppFlowService
 {
@@ -43,12 +30,12 @@ class WhatsAppFlowService
         $cleanPhone = $this->apiService->cleanPhoneNumber($fromPhone);
         $text = trim($messageBody);
 
-        // Load or create a session
+        // Load or create session
         $session = WhatsappSession::firstOrCreate(
             ['phone_number' => $cleanPhone],
             ['current_state' => 'MAIN_MENU', 'state_payload' => []]
         );
-        // Initialize payload for the session
+
         $payload = $session->state_payload ?? [];
 
         // Session timeout – reset after 15 minutes of inactivity
@@ -57,59 +44,46 @@ class WhatsAppFlowService
             return;
         }
 
+        // Show main menu on greeting or initial empty message
+        if ($session->current_state === 'MAIN_MENU' && (empty($text) || in_array(strtolower($text), ['hi', 'hello', 'مرحبا', 'start', 'hey']))) {
+            $this->resetToMainMenu($session, $cleanPhone);
+            return;
+        }
 
+        // Update interaction timestamp
+        $session->update(['last_interaction_at' => Carbon::now()]);
 
-        // Show main menu immediately on first interaction (no previous state payload)
-        if ($session->current_state === 'MAIN_MENU' && empty($payload) && $session->last_interaction_at === null) {
+        // Global flow cancel/restart via button IDs and common keywords
+        if (in_array(strtolower($text), ['flow_cancel', 'cancel_booking', 'flow_restart', 'main_menu', 'cancel', '0', 'الغاء', 'إلغاء', 'خروج', 'menu', 'قائمة', 'ابدأ'])) {
+            // If there's a holding appointment, cancel it safely without touching confirmed appointments
+            if (!empty($payload['appointment_id'])) {
+                $holding = Appointment::find($payload['appointment_id']);
+                if ($holding && $holding->status === 'holding') {
+                    $holding->update([
+                        'status' => 'cancelled_by_patient',
+                        'cancellation_reason' => 'Flow cancelled by user',
+                        'cancelled_at' => Carbon::now(),
+                    ]);
+                }
+            }
             $this->resetToMainMenu($session, $cleanPhone);
             return;
         }
 
         $state = $session->current_state;
 
-        // Update interaction timestamp for active session
-        $session->update(['last_interaction_at' => Carbon::now()]);
-        // Global flow cancel/restart via button IDs and common keywords
-        if (in_array(strtolower($text), ['flow_cancel', 'flow_restart', '0', 'الغاء', 'إلغاء', 'خروج', 'menu', 'قائمة', 'ابدأ'])) {
-            // If there's a holding appointment, cancel it safely
-            if (!empty($payload['appointment_id'])) {
-                $holding = Appointment::find($payload['appointment_id']);
-                if ($holding && $holding->status === 'holding') {
-                    $holding->update(['status' => 'cancelled_by_clinic', 'cancellation_reason' => 'Flow cancelled by user', 'cancelled_at' => Carbon::now()]);
-                }
-            }
-            $this->resetToMainMenu($session, $cleanPhone);
-            return;
-        }
-        // Handle navigation payloads from interactive lists
-        if ($text === 'main_menu') {
-            $this->resetToMainMenu($session, $cleanPhone);
-            return;
-        }
-        if ($text === 'cancel_booking') {
-            // Cancel any ongoing booking flow and release holding appointment
-            if (!empty($payload['appointment_id'])) {
-                $holding = Appointment::find($payload['appointment_id']);
-                if ($holding && $holding->status === 'holding') {
-                    $holding->update(['status' => 'cancelled_by_patient', 'cancellation_reason' => 'User cancelled booking', 'cancelled_at' => Carbon::now()]);
-                }
-            }
-            $this->apiService->sendTextMessage($cleanPhone, "✅ تم إلغاء عملية الحجز. عودة إلى القائمة الرئيسية.");
-            $this->resetToMainMenu($session, $cleanPhone);
-            return;
-        }
         switch ($state) {
             case 'MAIN_MENU':
                 $this->handleMainMenu($session, $cleanPhone, $text);
                 break;
-            case 'AWAITING_KVKK_CONSENT':
-                $this->handleKvkkConsent($session, $cleanPhone, $text, $payload);
+            case 'SELECTING_PATIENT':
+                $this->handleSelectPatient($session, $cleanPhone, $text, $payload);
                 break;
             case 'AWAITING_NEW_PATIENT_NAME':
                 $this->handleNewPatientName($session, $cleanPhone, $text, $payload);
                 break;
-            case 'SELECTING_PATIENT':
-                $this->handleSelectPatient($session, $cleanPhone, $text, $payload);
+            case 'AWAITING_KVKK_CONSENT':
+                $this->handleKvkkConsent($session, $cleanPhone, $text, $payload);
                 break;
             case 'SELECTING_SPECIALTY':
                 $this->handleSelectSpecialty($session, $cleanPhone, $text, $payload);
@@ -137,217 +111,312 @@ class WhatsAppFlowService
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Helper methods – copied verbatim from the original service
-    // ---------------------------------------------------------------------
-
-    protected function resetToMainMenu(WhatsappSession $session, string $phone): void
+    /**
+     * Display Main Menu with 3 separate interactive reply buttons.
+     */
+    public function resetToMainMenu(WhatsappSession $session, string $phone): void
     {
-        $clinicName = ClinicSetting::get('clinic_name', 'عيادة الشفاء التخصصية');
         $session->update([
             'current_state' => 'MAIN_MENU',
             'state_payload' => [],
             'last_interaction_at' => Carbon::now(),
         ]);
 
+        $body = "Welcome to Al-Shifa Medical Clinic.\n\nThis bot helps you manage your clinic appointments. Please select one of the options below.";
+
         $buttons = [
-            ['type' => 'reply', 'reply' => ['id' => 'main_menu_book', 'title' => '📅 حجز موعد جديد']],
-            ['type' => 'reply', 'reply' => ['id' => 'main_menu_view', 'title' => '👀 استعراض مواعيدي القادمة']],
-            ['type' => 'reply', 'reply' => ['id' => 'main_menu_cancel', 'title' => '❌ إلغاء موعد قائم']],
+            [
+                'id' => 'main_new_appointment',
+                'title' => 'New Appointment',
+                'type' => 'reply',
+                'reply' => ['id' => 'main_new_appointment', 'title' => 'New Appointment'],
+            ],
+            [
+                'id' => 'main_view_appointments',
+                'title' => 'View / Reschedule Appointments',
+                'type' => 'reply',
+                'reply' => ['id' => 'main_view_appointments', 'title' => 'View / Reschedule Appointments'],
+            ],
+            [
+                'id' => 'main_cancel_appointments',
+                'title' => 'Cancel Active Appointments',
+                'type' => 'reply',
+                'reply' => ['id' => 'main_cancel_appointments', 'title' => 'Cancel Active Appointments'],
+            ],
         ];
-        $header = "أهلاً بك في {$clinicName} 🏥";
-        $body = "يرجى اختيار الخدمة المطلوبة:";
-        $this->apiService->sendButtonMessage($phone, $body, $buttons, $header);
+
+        $this->apiService->sendButtonMessage($phone, $body, $buttons);
     }
 
+    /**
+     * Handle Main Menu actions.
+     */
     protected function handleMainMenu(WhatsappSession $session, string $phone, string $choice): void
     {
-        if (in_array($choice, ['1', 'main_menu_book'])) {
+        if (in_array($choice, ['1', 'main_new_appointment', 'main_menu_book'])) {
             $this->initiateBookingFlow($session, $phone);
-        } elseif (in_array($choice, ['2', 'main_menu_view'])) {
+        } elseif (in_array($choice, ['2', 'main_view_appointments', 'main_menu_view'])) {
             $this->showUpcomingAppointments($session, $phone);
-        } elseif (in_array($choice, ['3', 'main_menu_cancel'])) {
+        } elseif (in_array($choice, ['3', 'main_cancel_appointments', 'main_menu_cancel'])) {
             $this->initiateCancellationFlow($session, $phone);
         } else {
-            $this->apiService->sendTextMessage($phone, "عذراً، الخيار غير صحيح. يرجى إرسال 1 لحجز موعد، أو 2 لاستعراض المواعيد، أو 3 للإلغاء.");
+            $this->apiService->sendTextMessage($phone, "Please select one of the options below by tapping one of the buttons.");
+            $this->resetToMainMenu($session, $phone);
         }
     }
 
-    protected function initiateBookingFlow(WhatsappSession $session, string $phone): void
+    /**
+     * Retrieve the single most recently registered or booked patient for this phone number.
+     */
+    protected function getLatestPatientForPhone(string $phone): ?Patient
     {
         $patients = Patient::where('primary_phone', $phone)->get();
         if ($patients->isEmpty()) {
-            $session->update([
-                'current_state' => 'AWAITING_KVKK_CONSENT',
-                'state_payload' => [],
-            ]);
-            $this->sendKvkkConsentMessage($session, $phone, []);
-            return;
+            return null;
         }
 
         if ($patients->count() === 1) {
-            $patient = $patients->first();
-            $session->update([
-                'current_state' => 'SELECTING_PATIENT',
-                'state_payload' => ['patient_id' => $patient->id, 'single_existing' => true],
-            ]);
-            $msg = "مرحباً بك مجدداً!\n" .
-                "هل ترغب بالحجز للمريض:\n" .
-                "👤 *{$patient->full_name}*\n\n" .
-                "1️⃣ متابعة الحجز بهذا الاسم\n" .
-                "2️⃣ حجز لشخص آخر برقمك (فرد من العائلة)";
-            $this->apiService->sendTextMessage($phone, $msg);
-            return;
+            return $patients->first();
         }
+
+        // Check if any patient has recent appointments
+        $latestWithAppt = Patient::where('primary_phone', $phone)
+            ->whereHas('appointments')
+            ->get()
+            ->sortByDesc(function ($p) {
+                return $p->appointments()->max('id') ?? 0;
+            })
+            ->first();
+
+        $latestRegistered = Patient::where('primary_phone', $phone)
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($latestWithAppt && $latestRegistered && $latestWithAppt->id !== $latestRegistered->id) {
+            $latestApptDate = $latestWithAppt->appointments()->latest('id')->first()?->created_at;
+            if ($latestApptDate && $latestApptDate->gt($latestRegistered->updated_at)) {
+                return $latestWithAppt;
+            }
+        }
+
+        return $latestRegistered;
+    }
+
+    /**
+     * Step 1: Patient Selection.
+     * Shows only the single latest patient (if exists), Register New Patient, and Cancel button.
+     */
+    protected function initiateBookingFlow(WhatsappSession $session, string $phone): void
+    {
+        $latestPatient = $this->getLatestPatientForPhone($phone);
 
         $session->update([
             'current_state' => 'SELECTING_PATIENT',
-            'state_payload' => ['patients_list' => $patients->pluck('id')->toArray()],
+            'state_payload' => [
+                'latest_patient_id' => $latestPatient?->id,
+            ],
+            'last_interaction_at' => Carbon::now(),
         ]);
 
-        $rows = [];
-        foreach ($patients as $p) {
-            $rows[] = ['id' => 'patient_' . $p->id, 'title' => $p->full_name];
+        $buttons = [];
+        if ($latestPatient) {
+            $buttons[] = [
+                'id' => 'patient_latest',
+                'title' => $latestPatient->full_name,
+                'type' => 'reply',
+                'reply' => ['id' => 'patient_latest', 'title' => $latestPatient->full_name],
+            ];
         }
-        $rows[] = ['id' => 'new_patient', 'title' => 'إضافة مريض جديد'];
-        // Add navigation rows
-        $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
-        $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
-        $sections = [['title' => 'المرضى', 'rows' => $rows]];
-        $body = "اختر المريض من القائمة:";
-        $buttonText = "اختر المريض";
-        $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
+
+        $buttons[] = [
+            'id' => 'patient_new',
+            'title' => 'Register New Patient',
+            'type' => 'reply',
+            'reply' => ['id' => 'patient_new', 'title' => 'Register New Patient'],
+        ];
+
+        $buttons[] = [
+            'id' => 'flow_cancel',
+            'title' => 'Cancel and Return to Main Menu',
+            'type' => 'reply',
+            'reply' => ['id' => 'flow_cancel', 'title' => 'Cancel and Return to Main Menu'],
+        ];
+
+        $this->apiService->sendButtonMessage($phone, "Please select a patient:", $buttons);
     }
 
+    /**
+     * Handle Patient Selection choices.
+     */
+    protected function handleSelectPatient(WhatsappSession $session, string $phone, string $choice, array $payload): void
+    {
+        $latestPatientId = $payload['latest_patient_id'] ?? null;
+
+        // Choose latest patient
+        $isLatestChosen = ($choice === 'patient_latest') ||
+            ($latestPatientId && $choice === 'patient_' . $latestPatientId) ||
+            ($latestPatientId && $choice === '1');
+
+        if ($isLatestChosen && $latestPatientId) {
+            $patient = Patient::find($latestPatientId);
+            if ($patient && $patient->is_blocked) {
+                $this->apiService->sendTextMessage($phone, "Sorry, this patient account is blocked. Please contact the clinic.");
+                $this->resetToMainMenu($session, $phone);
+                return;
+            }
+
+            // KVKK consent is required when reusing an existing patient
+            $session->update([
+                'current_state' => 'AWAITING_KVKK_CONSENT',
+                'state_payload' => ['patient_id' => $patient->id],
+            ]);
+            $this->sendKvkkConsentMessage($session, $phone, ['patient_id' => $patient->id]);
+            return;
+        }
+
+        // Choose to register new patient
+        $isNewPatientChosen = ($choice === 'patient_new' || $choice === 'new_patient') ||
+            (!$latestPatientId && $choice === '1') ||
+            ($latestPatientId && $choice === '2');
+
+        if ($isNewPatientChosen) {
+            $session->update([
+                'current_state' => 'AWAITING_NEW_PATIENT_NAME',
+                'state_payload' => [],
+            ]);
+            $this->apiService->sendTextMessage($phone, "Please enter the patient's full name:");
+            return;
+        }
+
+        // Invalid choice – re-display patient selection
+        $this->initiateBookingFlow($session, $phone);
+    }
+
+    /**
+     * Handle New Patient Name input.
+     */
+    protected function handleNewPatientName(WhatsappSession $session, string $phone, string $name, array $payload): void
+    {
+        $trimmedName = trim($name);
+        if (mb_strlen($trimmedName) < 2) {
+            $this->apiService->sendTextMessage($phone, "Please enter a valid patient full name (at least 2 characters):");
+            return;
+        }
+
+        // Check if patient already exists for this phone number to avoid unnecessary duplicates
+        $patient = Patient::where('primary_phone', $phone)
+            ->whereRaw('LOWER(TRIM(full_name)) = ?', [mb_strtolower($trimmedName)])
+            ->first();
+
+        if (!$patient) {
+            $patient = Patient::create([
+                'primary_phone' => $phone,
+                'full_name' => $trimmedName,
+                'kvkk_consent_accepted' => true,
+                'kvkk_consent_date' => Carbon::now(),
+            ]);
+        } else {
+            $patient->update([
+                'kvkk_consent_accepted' => true,
+                'kvkk_consent_date' => Carbon::now(),
+            ]);
+            $patient->touch();
+        }
+
+        // Touch to ensure this patient is the latest registered
+        $patient->touch();
+
+        // Continue directly to clinic selection
+        $session->update([
+            'current_state' => 'SELECTING_SPECIALTY',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $this->displaySpecialties($phone, $session, $patient->id);
+    }
+
+    /**
+     * Send KVKK Consent message with clean Yes / No reply buttons.
+     */
+    protected function sendKvkkConsentMessage(WhatsappSession $session, string $phone, array $payload): void
+    {
+        $body = "In order to proceed with your booking, please confirm your consent to our Personal Data Protection (KVKK) policy.\n\nDo you agree to the KVKK policy?";
+
+        $buttons = [
+            [
+                'id' => 'kvkk_yes',
+                'title' => 'Yes',
+                'type' => 'reply',
+                'reply' => ['id' => 'kvkk_yes', 'title' => 'Yes'],
+            ],
+            [
+                'id' => 'kvkk_no',
+                'title' => 'No',
+                'type' => 'reply',
+                'reply' => ['id' => 'kvkk_no', 'title' => 'No'],
+            ],
+        ];
+
+        $this->apiService->sendButtonMessage($phone, $body, $buttons);
+    }
+
+    /**
+     * Handle KVKK Consent response.
+     */
     protected function handleKvkkConsent(WhatsappSession $session, string $phone, string $text, array $payload): void
     {
-        if ($text === '1' || $text === 'kvkk_yes') {
+        if (in_array(strtolower($text), ['kvkk_yes', 'yes', '1', 'نعم'])) {
             $payload = array_merge($payload, ['kvkk_accepted' => true]);
-            if (isset($payload['patient_id'])) {
-                $patient = Patient::find($payload['patient_id']);
-                if ($patient && $patient->is_blocked) {
-                    $this->apiService->sendTextMessage($phone, "عذراً، لا يمكن حجز موعد لأن حساب المريض محظور. يرجى التواصل مع العيادة.");
-                    $this->resetToMainMenu($session, $phone);
-                    return;
+            $patientId = $payload['patient_id'] ?? null;
+
+            if ($patientId) {
+                $patient = Patient::find($patientId);
+                if ($patient) {
+                    $patient->update([
+                        'kvkk_consent_accepted' => true,
+                        'kvkk_consent_date' => Carbon::now(),
+                    ]);
                 }
+
                 $session->update([
                     'current_state' => 'SELECTING_SPECIALTY',
                     'state_payload' => $payload,
                 ]);
-                $this->displaySpecialties($phone, $session, $payload['patient_id']);
+
+                $this->displaySpecialties($phone, $session, $patientId);
             } else {
                 $session->update([
                     'current_state' => 'AWAITING_NEW_PATIENT_NAME',
                     'state_payload' => $payload,
                 ]);
-                $this->apiService->sendTextMessage($phone, "شكراً لموافقتك. يرجى الآن كتابة *الاسم الثلاثي* للمريض:");
+                $this->apiService->sendTextMessage($phone, "Please enter the patient's full name:");
             }
-        } else {
-            $this->apiService->sendTextMessage($phone, "تم إلغاء العملية بناءً على رغبتك. يمكنك بدء المحادثة في أي وقت.");
+        } elseif (in_array(strtolower($text), ['kvkk_no', 'no', '2', 'لا'])) {
+            $this->apiService->sendTextMessage($phone, "Booking cancelled because KVKK consent was not provided.");
             $this->resetToMainMenu($session, $phone);
-        }
-    }
-
-    protected function handleNewPatientName(WhatsappSession $session, string $phone, string $name, array $payload): void
-    {
-        if (strlen($name) < 3) {
-            $this->apiService->sendTextMessage($phone, "يرجى كتابة الاسم بشكل صحيح (3 أحرف على الأقل):");
-            return;
-        }
-        $patient = Patient::create([
-            'primary_phone' => $phone,
-            'full_name' => $name,
-            'kvkk_consent_accepted' => true,
-            'kvkk_consent_date' => Carbon::now(),
-        ]);
-        $session->update([
-            'current_state' => 'SELECTING_SPECIALTY',
-            'state_payload' => ['patient_id' => $patient->id],
-        ]);
-        $this->displaySpecialties($phone, $session, $patient->id);
-    }
-
-    protected function handleSelectPatient(WhatsappSession $session, string $phone, string $choice, array $payload): void
-    {
-        // If a single existing patient was pre‑selected, we need to let the user choose between using it or adding a new one
-        if (!empty($payload['single_existing'])) {
-            if ($choice === '1' || $choice === 'use_existing') {
-                $patientId = $payload['patient_id'];
-                $session->update([
-                    'current_state' => 'AWAITING_KVKK_CONSENT',
-                    'state_payload' => ['patient_id' => $patientId],
-                ]);
-                $this->sendKvkkConsentMessage($session, $phone, ['patient_id' => $patientId]);
-                return;
-            }
-            if ($choice === '2' || $choice === 'new_patient') {
-                $session->update([
-                    'current_state' => 'AWAITING_NEW_PATIENT_NAME',
-                    'state_payload' => [],
-                ]);
-                $this->apiService->sendTextMessage($phone, "يرجى كتابة الاسم الثلاثي للشخص الجديد:");
-                return;
-            }
-            $this->apiService->sendTextMessage($phone, "إدخال غير صالح. الرجاء اختيار 1 أو 2.");
-            return;
-        }
-
-        $patientId = $payload['patient_id'] ?? null;
-        if ($patientId) {
-            $session->update([
-                'current_state' => 'AWAITING_KVKK_CONSENT',
-                'state_payload' => ['patient_id' => $patientId],
-            ]);
-            $this->sendKvkkConsentMessage($session, $phone, ['patient_id' => $patientId]);
-            return;
-        }
-
-        if (Str::startsWith($choice, 'patient_')) {
-            $selectedId = (int) substr($choice, 8);
-            $session->update([
-                'current_state' => 'AWAITING_KVKK_CONSENT',
-                'state_payload' => ['patient_id' => $selectedId],
-            ]);
-            $this->sendKvkkConsentMessage($session, $phone, ['patient_id' => $selectedId]);
-            return;
-        }
-        if ($choice === 'new_patient') {
-            $session->update([
-                'current_state' => 'AWAITING_NEW_PATIENT_NAME',
-                'state_payload' => [],
-            ]);
-            $this->apiService->sendTextMessage($phone, "يرجى كتابة الاسم الثلاثي للشخص الجديد:");
-            return;
-        }
-
-        $patientIds = $payload['patients_list'] ?? [];
-        $index = ((int) $choice) - 1;
-        if ($index >= 0 && $index < count($patientIds)) {
-            $selectedId = $patientIds[$index];
-            $session->update([
-                'current_state' => 'AWAITING_KVKK_CONSENT',
-                'state_payload' => ['patient_id' => $selectedId],
-            ]);
-            $this->sendKvkkConsentMessage($session, $phone, ['patient_id' => $selectedId]);
-        } elseif ($index === count($patientIds)) {
-            $session->update([
-                'current_state' => 'AWAITING_NEW_PATIENT_NAME',
-                'state_payload' => [],
-            ]);
-            $this->apiService->sendTextMessage($phone, "يرجى كتابة الاسم الثلاثي للشخص الجديد:");
         } else {
-            $this->apiService->sendTextMessage($phone, "رقم غير صحيح، يرجى اختيار أحد الأرقام الموضحة أعلاه.");
+            // Re-prompt KVKK message
+            $this->sendKvkkConsentMessage($session, $phone, $payload);
         }
     }
 
+    /**
+     * Step 2: Clinic Selection.
+     * Displays clinics as a WhatsApp interactive list, with a separate cancel button outside.
+     */
     protected function displaySpecialties(string $phone, WhatsappSession $session, int $patientId): void
     {
         $specialties = Specialty::where('is_active', true)->get();
         if ($specialties->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "عذراً، لا توجد تخصصات متاحة للحجز حالياً.");
+            $this->apiService->sendTextMessage($phone, "No clinics are currently available for booking.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
+
         $session->update([
             'current_state' => 'SELECTING_SPECIALTY',
             'state_payload' => [
@@ -355,39 +424,52 @@ class WhatsAppFlowService
                 'specialty_ids' => $specialties->pluck('id')->toArray(),
             ],
         ]);
+
         $rows = [];
         foreach ($specialties as $spec) {
-            $rows[] = ['id' => 'specialty_' . $spec->id, 'title' => $spec->name];
+            $rows[] = ['id' => 'clinic_' . $spec->id, 'title' => $spec->name];
         }
-        // Navigation rows
-        $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
-        $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
-        $sections = [['title' => 'التخصصات', 'rows' => $rows]];
-        $body = "اختر التخصص من القائمة:";
-        $buttonText = "اختر التخصص";
-        $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
+
+        $sections = [['title' => 'Clinics', 'rows' => $rows]];
+        $this->apiService->sendListMessage($phone, "Please select a clinic:", "Select Clinic", $sections);
+
+        // Separate cancel button outside the list
+        $this->sendSeparateCancelButton($phone);
     }
 
+    /**
+     * Handle Clinic Selection.
+     */
     protected function handleSelectSpecialty(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
         $specialtyIds = $payload['specialty_ids'] ?? [];
-        if (Str::startsWith($choice, 'specialty_')) {
+        $selectedId = null;
+
+        if (Str::startsWith($choice, 'clinic_')) {
+            $selectedId = (int) substr($choice, 7);
+        } elseif (Str::startsWith($choice, 'specialty_')) {
             $selectedId = (int) substr($choice, 10);
-            $index = array_search($selectedId, $specialtyIds);
         } else {
             $index = ((int) $choice) - 1;
+            if (isset($specialtyIds[$index])) {
+                $selectedId = $specialtyIds[$index];
+            }
         }
-        if (!isset($specialtyIds[$index])) {
-            $this->apiService->sendTextMessage($phone, "اختيار غير صحيح. يرجى اختيار رقم من القائمة.");
-            return;
-        }
-        $specialtyId = $specialtyIds[$index];
-        $doctors = Doctor::where('specialty_id', $specialtyId)->where('is_active', true)->get();
-        if ($doctors->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "عذراً، لا يوجد أطباء متاحين في هذا التخصص حالياً.");
+
+        if (!$selectedId || !in_array($selectedId, $specialtyIds)) {
+            $this->apiService->sendTextMessage($phone, "Invalid clinic selection. Please select a clinic from the list.");
             $this->displaySpecialties($phone, $session, $payload['patient_id']);
             return;
         }
+
+        $specialtyId = $selectedId;
+        $doctors = Doctor::where('specialty_id', $specialtyId)->where('is_active', true)->get();
+        if ($doctors->isEmpty()) {
+            $this->apiService->sendTextMessage($phone, "No doctors are currently available for this clinic.");
+            $this->displaySpecialties($phone, $session, $payload['patient_id']);
+            return;
+        }
+
         $session->update([
             'current_state' => 'SELECTING_DOCTOR',
             'state_payload' => array_merge($payload, [
@@ -395,41 +477,52 @@ class WhatsAppFlowService
                 'doctor_ids' => $doctors->pluck('id')->toArray(),
             ]),
         ]);
+
         $rows = [];
         foreach ($doctors as $doc) {
-            $title = $doc->title ? "({$doc->title})" : '';
-            $rows[] = ['id' => 'doctor_' . $doc->id, 'title' => trim("{$doc->full_name} {$title}")];
+            $title = $doc->title ? " ({$doc->title})" : '';
+            $rows[] = ['id' => 'doctor_' . $doc->id, 'title' => trim("{$doc->full_name}{$title}")];
         }
-        // Navigation rows
-        $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
-        $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
-        $sections = [['title' => 'الأطباء', 'rows' => $rows]];
-        $body = "اختر الطبيب من القائمة:";
-        $buttonText = "اختر الطبيب";
-        $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
+
+        $sections = [['title' => 'Doctors', 'rows' => $rows]];
+        $this->apiService->sendListMessage($phone, "Please select a doctor:", "Select Doctor", $sections);
+
+        // Separate cancel button outside the list
+        $this->sendSeparateCancelButton($phone);
     }
 
+    /**
+     * Handle Doctor Selection.
+     */
     protected function handleSelectDoctor(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
         $doctorIds = $payload['doctor_ids'] ?? [];
+        $selectedId = null;
+
         if (Str::startsWith($choice, 'doctor_')) {
             $selectedId = (int) substr($choice, 7);
-            $index = array_search($selectedId, $doctorIds);
         } else {
             $index = ((int) $choice) - 1;
+            if (isset($doctorIds[$index])) {
+                $selectedId = $doctorIds[$index];
+            }
         }
-        if (!isset($doctorIds[$index])) {
-            $this->apiService->sendTextMessage($phone, "اختيار غير صحيح. يرجى اختيار رقم الطبيب من القائمة.");
+
+        if (!$selectedId || !in_array($selectedId, $doctorIds)) {
+            $this->apiService->sendTextMessage($phone, "Invalid doctor selection. Please select a doctor from the list.");
             return;
         }
-        $doctorId = $doctorIds[$index];
+
+        $doctorId = $selectedId;
         $doctor = Doctor::find($doctorId);
         $availableDates = $this->bookingService->getAvailableDates($doctor, 8);
+
         if ($availableDates->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "عذراً، لا توجد مواعيد متاحة لهذا الطبيب خلال الأيام القادمة.");
+            $this->apiService->sendTextMessage($phone, "No appointment dates are available for this doctor in the coming days.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
+
         $session->update([
             'current_state' => 'SELECTING_DATE',
             'state_payload' => array_merge($payload, [
@@ -437,54 +530,71 @@ class WhatsAppFlowService
                 'available_dates' => $availableDates->toArray(),
             ]),
         ]);
+
         $rows = [];
         foreach ($availableDates->take(8) as $d) {
-            $rows[] = ['id' => 'date_' . $d['date'], 'title' => "{$d['day_name']} ({$d['date']})"];
+            $rows[] = ['id' => 'date_' . $d['date'], 'title' => "{$d['formatted']} ({$d['day_name']})"];
         }
-        // Navigation rows
-        $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
-        $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
-        $sections = [['title' => 'التواريخ المتاحة', 'rows' => $rows]];
-        $body = "اختر التاريخ المناسب للموعد:";
-        $buttonText = "اختر التاريخ";
-        $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
+
+        $sections = [['title' => 'Available Dates', 'rows' => $rows]];
+        $this->apiService->sendListMessage($phone, "Please select a suitable appointment date:", "Select Date", $sections);
+
+        // Separate cancel button outside the list
+        $this->sendSeparateCancelButton($phone);
     }
 
+    /**
+     * Handle Date Selection.
+     */
     protected function handleSelectDate(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
         $availableDates = $payload['available_dates'] ?? [];
+        $selectedDate = null;
+
         if (Str::startsWith($choice, 'date_')) {
             $selectedDate = substr($choice, 5);
         } else {
             $index = ((int) $choice) - 1;
-            if (!isset($availableDates[$index])) {
-                $this->apiService->sendTextMessage($phone, "تاريخ غير صحيح. يرجى اختيار رقم اليوم من القائمة.");
-                return;
+            if (isset($availableDates[$index])) {
+                $selectedDate = $availableDates[$index]['date'];
             }
-            $selectedDate = $availableDates[$index]['date'];
         }
-        $doctor = Doctor::find($payload['doctor_id']);
-        $slots = $this->bookingService->getAvailableSlots($doctor, $selectedDate);
-        if ($slots->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "عذراً، حُجزت جميع مواعيد هذا اليوم. يرجى اختيار تاريخ آخر.");
+
+        if (!$selectedDate) {
+            $this->apiService->sendTextMessage($phone, "Invalid date selection. Please select a date from the list.");
             return;
         }
+
+        $doctor = Doctor::find($payload['doctor_id']);
+        $slots = $this->bookingService->getAvailableSlots($doctor, $selectedDate);
+
+        if ($slots->isEmpty()) {
+            $this->apiService->sendTextMessage($phone, "All slots for this date are fully booked. Please select another date.");
+            return;
+        }
+
         $slotsArray = $slots->toArray();
+
         $session->update([
             'current_state' => 'SELECTING_SLOT',
             'state_payload' => array_merge($payload, [
                 'selected_date' => $selectedDate,
                 'available_slots' => $slotsArray,
+                'slot_page' => 1,
             ]),
         ]);
-        $page = $payload['slot_page'] ?? 1;
+
+        $this->displaySlotsList($phone, $selectedDate, $slotsArray, 1);
+    }
+
+    /**
+     * Display Available Time Slots list and separate cancel button.
+     */
+    protected function displaySlotsList(string $phone, string $selectedDate, array $slotsArray, int $page): void
+    {
         $totalSlots = count($slotsArray);
-        // WhatsApp interactive list has a hard maximum of 10 rows per list.
-        // Every page reserves 2 base navigation rows ('main_menu' and 'cancel_booking').
-        // Paginated pages may also include 'slot_page_prev' and 'slot_page_next' (up to 2 additional rows).
-        // A fixed capacity of 6 slots guarantees that even with all 4 navigation rows present,
-        // total rows (6 + 4 = 10) will never exceed WhatsApp's 10-row limit on any page.
-        $perPage = 6;
+        // Fixed capacity per page: 8 slots, leaving room for prev/next navigation rows (total rows <= 10)
+        $perPage = 8;
         $offset = ($page - 1) * $perPage;
 
         $pageSlots = array_slice($slotsArray, $offset, $perPage, true);
@@ -492,82 +602,69 @@ class WhatsAppFlowService
         foreach ($pageSlots as $idx => $s) {
             $rows[] = ['id' => 'slot_' . $idx, 'title' => $s['display']];
         }
-        // Navigation rows
+
         if ($page > 1) {
-            $rows[] = ['id' => 'slot_page_prev', 'title' => 'السابق'];
+            $rows[] = ['id' => 'slot_page_prev', 'title' => 'Previous Slots'];
         }
         if ($offset + count($pageSlots) < $totalSlots) {
-            $rows[] = ['id' => 'slot_page_next', 'title' => 'التالي'];
+            $rows[] = ['id' => 'slot_page_next', 'title' => 'More Slots'];
         }
-        $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
-        $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
-        $sections = [['title' => 'الأوقات المتاحة', 'rows' => $rows]];
-        $body = "اختر الوقت المناسب ليوم {$selectedDate}:";
-        $buttonText = "اختر الوقت";
-        $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
+
+        $sections = [['title' => 'Available Times', 'rows' => $rows]];
+        $this->apiService->sendListMessage($phone, "Please select an available appointment time:", "Select Time", $sections);
+
+        // Separate cancel button outside the list
+        $this->sendSeparateCancelButton($phone);
     }
 
+    /**
+     * Handle Slot Selection.
+     */
     protected function handleSelectSlot(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
         $slots = $payload['available_slots'] ?? [];
+
         // Handle pagination actions
         if ($choice === 'slot_page_next' || $choice === 'slot_page_prev') {
             $currentPage = $payload['slot_page'] ?? 1;
             $newPage = $choice === 'slot_page_next' ? $currentPage + 1 : max(1, $currentPage - 1);
-            // Update payload with new page
             $payload['slot_page'] = $newPage;
-            $session->update([
-                'state_payload' => $payload,
-            ]);
-            // Rebuild slot list for the new page with the exact same fixed page size
-            $selectedDate = $payload['selected_date'];
-            $slotsArray = $payload['available_slots'];
-            $totalSlots = count($slotsArray);
-            $perPage = 6;
-            $offset = ($newPage - 1) * $perPage;
+            $session->update(['state_payload' => $payload]);
 
-            $pageSlots = array_slice($slotsArray, $offset, $perPage, true);
-            $rows = [];
-            foreach ($pageSlots as $idx => $s) {
-                $rows[] = ['id' => 'slot_' . $idx, 'title' => $s['display']];
-            }
-            if ($newPage > 1) {
-                $rows[] = ['id' => 'slot_page_prev', 'title' => 'السابق'];
-            }
-            if ($offset + count($pageSlots) < $totalSlots) {
-                $rows[] = ['id' => 'slot_page_next', 'title' => 'التالي'];
-            }
-            $rows[] = ['id' => 'main_menu', 'title' => 'القائمة الرئيسية'];
-            $rows[] = ['id' => 'cancel_booking', 'title' => 'إلغاء الحجز'];
-            $sections = [['title' => 'الأوقات المتاحة', 'rows' => $rows]];
-            $body = "اختر الوقت المناسب ليوم {$selectedDate}:";
-            $buttonText = "اختر الوقت";
-            $this->apiService->sendListMessage($phone, $body, $buttonText, $sections);
+            $this->displaySlotsList($phone, $payload['selected_date'], $slots, $newPage);
             return;
         }
+
+        $index = null;
         if (Str::startsWith($choice, 'slot_')) {
             $index = (int) substr($choice, 5);
         } else {
             $index = ((int) $choice) - 1;
         }
+
         if (!isset($slots[$index])) {
-            $this->apiService->sendTextMessage($phone, "الوقت المختار غير صحيح. أرسل رقم الوقت من القائمة أعلاه.");
+            $this->apiService->sendTextMessage($phone, "Invalid time slot selected. Please choose a slot from the list.");
             return;
         }
-        if (!isset($slots[$index])) {
-            $this->apiService->sendTextMessage($phone, "الوقت المختار غير صالح. يرجى اختيار وقت من القائمة عبر الزر.");
-            return;
-        }
+
         $slot = $slots[$index];
         $doctor = Doctor::find($payload['doctor_id']);
         $patient = Patient::find($payload['patient_id']);
-        // Ensure the slot identifier exists and is valid
-        if (!isset($payload['available_slots'][$index])) {
-            $this->apiService->sendTextMessage($phone, "الوقت المختار غير موجود. أعد اختيار الوقت.");
-            return;
+
+        // Release any existing temporary holding appointment before holding a new slot
+        if (!empty($payload['appointment_id'])) {
+            $existingHold = Appointment::find($payload['appointment_id']);
+            if ($existingHold && $existingHold->status === 'holding') {
+                $existingHold->update([
+                    'status' => 'cancelled_by_patient',
+                    'cancellation_reason' => 'User selected a different slot',
+                    'cancelled_at' => Carbon::now(),
+                ]);
+            }
         }
+
         try {
-            // Hold the selected slot for the patient
+            // Revalidate slot and create temporary reservation
             $holdingAppt = $this->bookingService->holdSlot(
                 $patient,
                 $doctor,
@@ -576,6 +673,7 @@ class WhatsAppFlowService
                 $slot['end_time'],
                 'whatsapp'
             );
+
             $session->update([
                 'current_state' => 'CONFIRMING_BOOKING',
                 'state_payload' => array_merge($payload, [
@@ -583,214 +681,335 @@ class WhatsAppFlowService
                     'slot_display' => $slot['display'],
                 ]),
             ]);
-            $holdMin = ClinicSetting::get('slot_holding_minutes', 10);
-            $msg = "⏳ تفاصيل الموعد المقترح:\n" .
-                "👤 المريض: *{$patient->full_name}*\n" .
-                "👨‍⚕️ الطبيب: *{$doctor->full_name}*\n" .
-                "📅 التاريخ: *{$payload['selected_date']}*\n" .
-                "⏰ الوقت: *{$slot['display']}*\n\n" .
-                "⚠️ الموعد محجوز لك مؤقتاً لمدة ({$holdMin}) دقائق.\n" .
-                "لتأكيد الحجز نهائياً أرسل:\n✅ نعم\n❌ لا";
+
+            $clinicName = $doctor->specialty?->name ?? 'Clinic';
+
+            $reviewMsg = "Appointment Details\n\n" .
+                "Patient: {$patient->full_name}\n" .
+                "Clinic: {$clinicName}\n" .
+                "Doctor: {$doctor->full_name}\n" .
+                "Date: {$payload['selected_date']}\n" .
+                "Time: {$slot['display']}\n\n" .
+                "Please review the appointment details.\n\n" .
+                "Do you want to proceed?";
+
             $buttons = [
-                ['type' => 'reply', 'reply' => ['id' => 'confirm_yes', 'title' => '✅ نعم']],
-                ['type' => 'reply', 'reply' => ['id' => 'confirm_no', 'title' => '❌ لا']],
+                [
+                    'id' => 'booking_yes',
+                    'title' => 'Yes',
+                    'type' => 'reply',
+                    'reply' => ['id' => 'booking_yes', 'title' => 'Yes'],
+                ],
+                [
+                    'id' => 'booking_no',
+                    'title' => 'No',
+                    'type' => 'reply',
+                    'reply' => ['id' => 'booking_no', 'title' => 'No'],
+                ],
             ];
-            // Slots list is sent as a button message; the $msg is the body text
-            $this->apiService->sendButtonMessage($phone, $msg, $buttons); // correct order already matches signature
+
+            $this->apiService->sendButtonMessage($phone, $reviewMsg, $buttons);
+
         } catch (Throwable $e) {
-            $this->apiService->sendTextMessage($phone, "⚠️ " . $e->getMessage());
-            $this->handleSelectDate($session, $phone, ((int) array_search($payload['selected_date'], array_column($payload['available_dates'], 'date'))) + 1, $payload);
+            $this->apiService->sendTextMessage($phone, $e->getMessage());
+            // Re-fetch slots and redisplay
+            $availableSlots = $this->bookingService->getAvailableSlots($doctor, $payload['selected_date']);
+            $slotsArray = $availableSlots->toArray();
+            $payload['available_slots'] = $slotsArray;
+            $session->update(['state_payload' => $payload]);
+            $this->displaySlotsList($phone, $payload['selected_date'], $slotsArray, 1);
         }
     }
 
+    /**
+     * Handle Appointment Review and Confirmation.
+     */
     protected function handleConfirmBooking(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
         $apptId = $payload['appointment_id'] ?? null;
         $appointment = Appointment::find($apptId);
-        if (!$appointment) {
-            $this->apiService->sendTextMessage($phone, "حدث خطأ في استرجاع الموعد. يرجى البدء من جديد.");
+
+        // Disallow selecting another slot while a pending confirmation is active
+        if (Str::startsWith($choice, 'slot_')) {
+            $this->apiService->sendTextMessage($phone, "You have a pending appointment confirmation. Please reply Yes to confirm or No to cancel.");
+            $buttons = [
+                ['id' => 'booking_yes', 'title' => 'Yes', 'type' => 'reply', 'reply' => ['id' => 'booking_yes', 'title' => 'Yes']],
+                ['id' => 'booking_no', 'title' => 'No', 'type' => 'reply', 'reply' => ['id' => 'booking_no', 'title' => 'No']],
+            ];
+            $this->apiService->sendButtonMessage($phone, "Do you want to proceed with your booking?", $buttons);
+            return;
+        }
+
+        // If user presses No
+        if (in_array(strtolower($choice), ['booking_no', 'confirm_no', 'no', '2', 'لا'])) {
+            if ($appointment && $appointment->status === 'holding') {
+                $appointment->update([
+                    'status' => 'cancelled_by_patient',
+                    'cancellation_reason' => 'User rejected booking confirmation',
+                    'cancelled_at' => Carbon::now(),
+                ]);
+            }
+            $session->update([
+                'current_state' => 'MAIN_MENU',
+                'state_payload' => [],
+            ]);
             $this->resetToMainMenu($session, $phone);
             return;
         }
-        // Verify that the holding appointment belongs to this session's patient and doctor
-        if ($appointment->status !== 'holding') {
-            $this->apiService->sendTextMessage($phone, "الموعد لا يُعد في حالة حجز مؤقتة. يرجى البدء من جديد.");
-            $this->resetToMainMenu($session, $phone);
-            return;
-        }
-        if ($choice === '1' || $choice === 'confirm_yes') {
-            try {
-                $doctor = Doctor::find($payload['doctor_id']);
-                $slot = $payload['slot_display'];
-                $availableSlots = $this->bookingService->getAvailableSlots($doctor, $payload['selected_date']);
-                $slotStillAvailable = collect($availableSlots)->contains(fn($s) => $s['display'] === $slot);
-                if (!$slotStillAvailable) {
-                    $this->handleSelectDate($session, $phone, (string) array_search($payload['selected_date'], array_column($payload['available_dates'], 'date')) + 1, $payload);
-                    return;
-                }
-                $confirmed = $this->bookingService->confirmAppointment($appointment);
-                if (!empty($payload['kvkk_accepted'])) {
-                    $confirmed->update([
-                        'kvkk_consent_accepted' => true,
-                        'kvkk_consent_date' => Carbon::now(),
-                    ]);
-                }
-                $msg = "✅ *تم تأكيد حجز موعدك بنجاح!*\n\n" .
-                    "🏷️ رقم الحجز المرجعي: *{$confirmed->reference_code}*\n" .
-                    "👤 المريض: {$confirmed->patient->full_name}\n" .
-                    "👨‍⚕️ الطبيب: {$confirmed->doctor->full_name}\n" .
-                    "📅 التاريخ: {$confirmed->appointment_date->format('Y-m-d')}\n" .
-                    "⏰ الوقت: {$payload['slot_display']}\n\n" .
-                    "📍 يرجى الحضور قبل الموعد بـ 10 دقائق.\n" .
-                    "نتمنى لكم دوام الصحة والعافية! 🌸";
-                $this->apiService->sendTextMessage($phone, $msg);
+
+        // If user presses Yes
+        if (in_array(strtolower($choice), ['booking_yes', 'confirm_yes', 'yes', '1', 'نعم'])) {
+            // Idempotency: if already confirmed (repeated webhook delivery), send confirmation and reset
+            if ($appointment && $appointment->status === 'confirmed') {
+                $this->sendConfirmationSuccessMessage($phone, $appointment, $payload['slot_display'] ?? null);
+                $session->update([
+                    'current_state' => 'MAIN_MENU',
+                    'state_payload' => [],
+                ]);
                 $this->resetToMainMenu($session, $phone);
+                return;
+            }
+
+            if (!$appointment || $appointment->status !== 'holding') {
+                $this->apiService->sendTextMessage($phone, "The reservation is no longer pending. Please start a new booking.");
+                $this->resetToMainMenu($session, $phone);
+                return;
+            }
+
+            // Check if holding reservation has expired
+            if ($appointment->holding_expires_at && Carbon::now()->gt($appointment->holding_expires_at)) {
+                $appointment->update([
+                    'status' => 'cancelled_by_clinic',
+                    'cancellation_reason' => 'Reservation expired',
+                    'cancelled_at' => Carbon::now(),
+                ]);
+                $this->apiService->sendTextMessage($phone, "Your temporary reservation has expired. Please select an available appointment time again.");
+                // Return to slot selection
+                $this->handleSelectDate($session, $phone, 'date_' . $payload['selected_date'], $payload);
+                return;
+            }
+
+            try {
+                // Confirm the exact pending reservation
+                $confirmed = $this->bookingService->confirmAppointment($appointment);
+                $confirmed->update([
+                    'kvkk_consent_accepted' => true,
+                    'kvkk_consent_date' => Carbon::now(),
+                ]);
+
+                // Update patient touched timestamp
+                $confirmed->patient?->touch();
+
+                // Send clean professional confirmation message
+                $this->sendConfirmationSuccessMessage($phone, $confirmed, $payload['slot_display'] ?? null);
+
+                // Clear pending booking state and automatically display main menu
+                $session->update([
+                    'current_state' => 'MAIN_MENU',
+                    'state_payload' => [],
+                ]);
+                $this->resetToMainMenu($session, $phone);
+
             } catch (Throwable $e) {
-                $this->apiService->sendTextMessage($phone, "⚠️ " . $e->getMessage());
+                $this->apiService->sendTextMessage($phone, $e->getMessage());
                 $this->resetToMainMenu($session, $phone);
             }
-        } else {
-            // User rejected the booking, release the holding slot safely
-            $appointment->update([
-                'status' => 'cancelled_by_patient',
-                'cancellation_reason' => 'User rejected booking confirmation',
-                'cancelled_at' => Carbon::now(),
-            ]);
-            $this->apiService->sendTextMessage($phone, "تم إلغاء طلب الحجز وإتاحة الموعد للآخرين.");
-            $this->resetToMainMenu($session, $phone);
+            return;
         }
+
+        // Any other unrecognized input: re-prompt confirmation without cancelling
+        $buttons = [
+            ['id' => 'booking_yes', 'title' => 'Yes', 'type' => 'reply', 'reply' => ['id' => 'booking_yes', 'title' => 'Yes']],
+            ['id' => 'booking_no', 'title' => 'No', 'type' => 'reply', 'reply' => ['id' => 'booking_no', 'title' => 'No']],
+        ];
+        $this->apiService->sendButtonMessage($phone, "Please review your appointment details and select Yes to proceed or No to cancel:", $buttons);
     }
 
+    /**
+     * Send final confirmation message in clean, professional plain text.
+     */
+    protected function sendConfirmationSuccessMessage(string $phone, Appointment $appointment, ?string $slotDisplay = null): void
+    {
+        $clinicName = $appointment->doctor->specialty?->name ?? ClinicSetting::get('clinic_name', 'Al-Shifa Medical Clinic');
+        $timeDisplay = $slotDisplay ?: (substr($appointment->start_time, 0, 5) . ' - ' . substr($appointment->end_time, 0, 5));
+        $dateDisplay = Carbon::parse($appointment->appointment_date)->format('Y-m-d');
+
+        $msg = "Your appointment has been confirmed successfully.\n\n" .
+            "Appointment Details\n\n" .
+            "Patient: {$appointment->patient->full_name}\n" .
+            "Clinic: {$clinicName}\n" .
+            "Doctor: {$appointment->doctor->full_name}\n" .
+            "Date: {$dateDisplay}\n" .
+            "Time: {$timeDisplay}\n\n" .
+            "Thank you for choosing Al-Shifa Medical Clinic.";
+
+        $this->apiService->sendTextMessage($phone, $msg);
+    }
+
+    /**
+     * Send separate cancel button below a list message.
+     */
+    protected function sendSeparateCancelButton(string $phone): void
+    {
+        $buttons = [
+            [
+                'id' => 'flow_cancel',
+                'title' => 'Cancel and Return to Main Menu',
+                'type' => 'reply',
+                'reply' => ['id' => 'flow_cancel', 'title' => 'Cancel and Return to Main Menu'],
+            ],
+        ];
+
+        $this->apiService->sendButtonMessage($phone, "To cancel and return to the main menu:", $buttons);
+    }
+
+    /**
+     * Show upcoming confirmed appointments.
+     */
     protected function showUpcomingAppointments(WhatsappSession $session, string $phone): void
     {
         $patientIds = Patient::where('primary_phone', $phone)->pluck('id');
-        $appointments = Appointment::with(['doctor', 'patient'])
+        $appointments = Appointment::with(['doctor.specialty', 'patient'])
             ->whereIn('patient_id', $patientIds)
             ->where('appointment_date', '>=', Carbon::today()->toDateString())
             ->where('status', 'confirmed')
             ->orderBy('appointment_date')
             ->orderBy('start_time')
             ->get();
+
         if ($appointments->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "لا توجد لديك أي مواعيد قادمة مؤكدة حالياً.");
+            $this->apiService->sendTextMessage($phone, "You do not have any upcoming confirmed appointments.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
-        $msg = "📋 مواعيدك القادمة المؤكدة:\n\n";
+
+        $msg = "Upcoming Appointments\n\n";
         foreach ($appointments as $idx => $a) {
             $num = $idx + 1;
-            $msg .= "{$num}️⃣ *{$a->reference_code}*\n" .
-                "👤 المريض: {$a->patient->full_name}\n" .
-                "👨‍⚕️ الطبيب: {$a->doctor->full_name}\n" .
-                "📅 التاريخ: {$a->appointment_date->format('Y-m-d')}\n" .
-                "⏰ الوقت: " . substr($a->start_time, 0, 5) . "\n\n";
+            $clinicName = $a->doctor->specialty?->name ?? 'Clinic';
+            $msg .= "{$num}. Reference: {$a->reference_code}\n" .
+                "Patient: {$a->patient->full_name}\n" .
+                "Clinic: {$clinicName}\n" .
+                "Doctor: {$a->doctor->full_name}\n" .
+                "Date: {$a->appointment_date->format('Y-m-d')}\n" .
+                "Time: " . substr($a->start_time, 0, 5) . " - " . substr($a->end_time, 0, 5) . "\n\n";
         }
-        $this->apiService->sendTextMessage($phone, $msg);
+
+        $this->apiService->sendTextMessage($phone, trim($msg));
         $this->resetToMainMenu($session, $phone);
     }
 
+    /**
+     * Step: Cancellation Flow.
+     */
     protected function initiateCancellationFlow(WhatsappSession $session, string $phone): void
     {
         $patientIds = Patient::where('primary_phone', $phone)->pluck('id');
-        $appointments = Appointment::with(['doctor', 'patient'])
+        $appointments = Appointment::with(['doctor.specialty', 'patient'])
             ->whereIn('patient_id', $patientIds)
             ->where('appointment_date', '>=', Carbon::today()->toDateString())
             ->where('status', 'confirmed')
             ->orderBy('appointment_date')
             ->orderBy('start_time')
             ->get();
+
         if ($appointments->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "لا توجد لديك مواعيد مؤكدة يمكن إلغاؤها حالياً.");
+            $this->apiService->sendTextMessage($phone, "You do not have any active appointments that can be cancelled.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
+
         $session->update([
             'current_state' => 'SELECTING_CANCEL_APPT',
             'state_payload' => [
                 'cancellable_ids' => $appointments->pluck('id')->toArray(),
             ],
         ]);
-        $msg = "اختر الموعد الذي ترغب بإلغائه بإرسال رقمه:\n";
+
+        $msg = "Please reply with the number of the appointment you wish to cancel:\n\n";
         foreach ($appointments as $idx => $a) {
             $num = $idx + 1;
-            $msg .= "{$num}️⃣ الموعد: [{$a->reference_code}] مع {$a->doctor->full_name} بتاريخ {$a->appointment_date->format('Y-m-d')} الساعة " . substr($a->start_time, 0, 5) . "\n";
+            $msg .= "{$num}. Reference: [{$a->reference_code}] with {$a->doctor->full_name} on {$a->appointment_date->format('Y-m-d')} at " . substr($a->start_time, 0, 5) . "\n";
         }
-        $this->apiService->sendTextMessage($phone, $msg);
+
+        $this->apiService->sendTextMessage($phone, trim($msg));
     }
 
+    /**
+     * Handle Cancel Appointment Choice.
+     */
     protected function handleSelectCancelAppointment(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
         $cancellableIds = $payload['cancellable_ids'] ?? [];
         $index = ((int) $choice) - 1;
+
         if (!isset($cancellableIds[$index])) {
-            $this->apiService->sendTextMessage($phone, "رقم غير صحيح. أرسل رقم الموعد المراد إلغاؤه من القائمة.");
+            $this->apiService->sendTextMessage($phone, "Invalid selection. Please reply with the number of the appointment to cancel.");
             return;
         }
+
         $appointment = Appointment::find($cancellableIds[$index]);
         if (!$appointment) {
-            $this->apiService->sendTextMessage($phone, "الموعد غير موجود. حاول مرة أخرى.");
+            $this->apiService->sendTextMessage($phone, "The appointment was not found. Please try again.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
+
         $session->update([
             'current_state' => 'CONFIRMING_CANCELLATION',
             'state_payload' => ['appointment_id' => $appointment->id],
         ]);
-        $confirmMsg = "هل تريد إلغاء الموعد [{$appointment->reference_code}] مع {$appointment->doctor->full_name} في {$appointment->appointment_date->format('Y-m-d')}؟";
+
+        $confirmMsg = "Are you sure you want to cancel your appointment [{$appointment->reference_code}] with {$appointment->doctor->full_name} on {$appointment->appointment_date->format('Y-m-d')}?";
         $buttons = [
-            ['type' => 'reply', 'reply' => ['id' => 'cancel_yes', 'title' => '✅ نعم']],
-            ['type' => 'reply', 'reply' => ['id' => 'cancel_no', 'title' => '❌ لا']],
+            ['id' => 'cancel_yes', 'title' => 'Yes', 'type' => 'reply', 'reply' => ['id' => 'cancel_yes', 'title' => 'Yes']],
+            ['id' => 'cancel_no', 'title' => 'No', 'type' => 'reply', 'reply' => ['id' => 'cancel_no', 'title' => 'No']],
         ];
-        // Confirmation of cancellation uses button message with proper order
-        $this->apiService->sendButtonMessage($phone, $confirmMsg, $buttons); // correct order
+
+        $this->apiService->sendButtonMessage($phone, $confirmMsg, $buttons);
     }
 
+    /**
+     * Handle Confirmation of Cancellation.
+     */
     protected function handleConfirmCancellation(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
         $appointmentId = $payload['appointment_id'] ?? null;
         $appointment = Appointment::find($appointmentId);
+
         if (!$appointment) {
-            $this->apiService->sendTextMessage($phone, "الموعد غير موجود أو تم حذفه مسبقاً.");
+            $this->apiService->sendTextMessage($phone, "The appointment was not found or was already removed.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
+
         $patient = $appointment->patient;
         if (!$patient || $patient->primary_phone !== $phone) {
-            $this->apiService->sendTextMessage($phone, "ليس لديك صلاحية إلغاء هذا الموعد.");
+            $this->apiService->sendTextMessage($phone, "You are not authorized to cancel this appointment.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
+
         $nonCancellable = ['cancelled_by_patient', 'cancelled_by_clinic', 'completed'];
         if (in_array($appointment->status, $nonCancellable)) {
-            $this->apiService->sendTextMessage($phone, "لا يمكن إلغاء الموعد لأنه غير قابل للإلغاء حالياً.");
+            $this->apiService->sendTextMessage($phone, "This appointment cannot be cancelled.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
+
         if (in_array(strtolower($choice), ['cancel_yes', 'yes', '1'])) {
             try {
-                $this->bookingService->cancelAppointment($appointment, 'إلغاء من المريض عبر واتساب', 'patient');
-                $msg = "✅ تم إلغاء الموعد [{$appointment->reference_code}] مع {$appointment->doctor->full_name} في {$appointment->appointment_date->format('Y-m-d')} الساعة " . substr($appointment->start_time, 0, 5) . ".";
+                $this->bookingService->cancelAppointment($appointment, 'Cancelled by patient via WhatsApp', 'patient');
+                $msg = "Your appointment [{$appointment->reference_code}] with {$appointment->doctor->full_name} on {$appointment->appointment_date->format('Y-m-d')} at " . substr($appointment->start_time, 0, 5) . " has been cancelled.";
                 $this->apiService->sendTextMessage($phone, $msg);
             } catch (Throwable $e) {
-                $this->apiService->sendTextMessage($phone, "⚠️ لا يمكن إلغاء الموعد: " . $e->getMessage());
+                $this->apiService->sendTextMessage($phone, "Unable to cancel appointment: " . $e->getMessage());
             }
             $this->resetToMainMenu($session, $phone);
             return;
         }
-        $this->apiService->sendTextMessage($phone, "تم إلغاء طلب الإلغاء. عودة للقائمة الرئيسية.");
+
+        $this->apiService->sendTextMessage($phone, "Cancellation was aborted. Returning to main menu.");
         $this->resetToMainMenu($session, $phone);
     }
-
-    protected function sendKvkkConsentMessage(WhatsappSession $session, string $phone, array $payload): void
-    {
-        $header = '⚖️ موافقة KVKK';
-        $body = "لتأكيد حجزك، يرجى موافقتك على سياسة حماية البيانات (KVKK).\n" .
-            "اضغط ✅ للموافقة أو ❌ للرفض.";
-        $buttons = [
-            ['type' => 'reply', 'reply' => ['id' => 'kvkk_yes', 'title' => '✅ نعم']],
-            ['type' => 'reply', 'reply' => ['id' => 'kvkk_no', 'title' => '❌ لا']],
-        ];
-        $this->apiService->sendButtonMessage($phone, $body, $buttons, $header); // correct order
-    }
 }
-?>

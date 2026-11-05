@@ -71,6 +71,6 @@ class WhatsAppBotTest extends TestCase
         $this->postJson('/api/v1/whatsapp/webhook', $payload);
 
         $session->refresh();
-        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+        $this->assertEquals('SELECTING_PATIENT', $session->current_state);
     }
 }
