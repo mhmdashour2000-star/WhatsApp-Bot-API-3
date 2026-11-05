@@ -39,6 +39,8 @@ class Appointment extends Model
         'attended',
         'version',
         'source',
+        'kvkk_consent_accepted',
+        'kvkk_consent_date',
     ];
 
     protected $casts = [

@@ -112,7 +112,7 @@ class WhatsAppFlowService
     }
 
     /**
-     * Display Main Menu with 3 separate interactive reply buttons.
+     * Display Main Menu with 3 separate interactive reply buttons in Arabic.
      */
     public function resetToMainMenu(WhatsappSession $session, string $phone): void
     {
@@ -122,26 +122,26 @@ class WhatsAppFlowService
             'last_interaction_at' => Carbon::now(),
         ]);
 
-        $body = "Welcome to Al-Shifa Medical Clinic.\n\nThis bot helps you manage your clinic appointments. Please select one of the options below.";
+        $body = "مرحباً بكم في عيادة الشفاء الطبية.\n\nتتيح لكم هذه الخدمة إدارة مواعيدكم الطبية بكل سهولة. يرجى اختيار إحدى الخدمات التالية:";
 
         $buttons = [
             [
                 'id' => 'main_new_appointment',
-                'title' => 'New Appointment',
+                'title' => 'حجز موعد جديد',
                 'type' => 'reply',
-                'reply' => ['id' => 'main_new_appointment', 'title' => 'New Appointment'],
+                'reply' => ['id' => 'main_new_appointment', 'title' => 'حجز موعد جديد'],
             ],
             [
                 'id' => 'main_view_appointments',
-                'title' => 'View / Reschedule Appointments',
+                'title' => 'استعراض المواعيد',
                 'type' => 'reply',
-                'reply' => ['id' => 'main_view_appointments', 'title' => 'View / Reschedule Appointments'],
+                'reply' => ['id' => 'main_view_appointments', 'title' => 'استعراض المواعيد'],
             ],
             [
                 'id' => 'main_cancel_appointments',
-                'title' => 'Cancel Active Appointments',
+                'title' => 'إلغاء موعد نشط',
                 'type' => 'reply',
-                'reply' => ['id' => 'main_cancel_appointments', 'title' => 'Cancel Active Appointments'],
+                'reply' => ['id' => 'main_cancel_appointments', 'title' => 'إلغاء موعد نشط'],
             ],
         ];
 
@@ -153,14 +153,14 @@ class WhatsAppFlowService
      */
     protected function handleMainMenu(WhatsappSession $session, string $phone, string $choice): void
     {
-        if (in_array($choice, ['1', 'main_new_appointment', 'main_menu_book'])) {
+        if (in_array($choice, ['1', 'main_new_appointment', 'main_menu_book', 'حجز موعد جديد'])) {
             $this->initiateBookingFlow($session, $phone);
-        } elseif (in_array($choice, ['2', 'main_view_appointments', 'main_menu_view'])) {
+        } elseif (in_array($choice, ['2', 'main_view_appointments', 'main_menu_view', 'استعراض المواعيد'])) {
             $this->showUpcomingAppointments($session, $phone);
-        } elseif (in_array($choice, ['3', 'main_cancel_appointments', 'main_menu_cancel'])) {
+        } elseif (in_array($choice, ['3', 'main_cancel_appointments', 'main_menu_cancel', 'إلغاء موعد نشط'])) {
             $this->initiateCancellationFlow($session, $phone);
         } else {
-            $this->apiService->sendTextMessage($phone, "Please select one of the options below by tapping one of the buttons.");
+            $this->apiService->sendTextMessage($phone, "يرجى اختيار أحد الخيارات المتاحة بالضغط على الزر المطلوب أدناه.");
             $this->resetToMainMenu($session, $phone);
         }
     }
@@ -231,19 +231,19 @@ class WhatsAppFlowService
 
         $buttons[] = [
             'id' => 'patient_new',
-            'title' => 'Register New Patient',
+            'title' => 'تسجيل مريض جديد',
             'type' => 'reply',
-            'reply' => ['id' => 'patient_new', 'title' => 'Register New Patient'],
+            'reply' => ['id' => 'patient_new', 'title' => 'تسجيل مريض جديد'],
         ];
 
         $buttons[] = [
             'id' => 'flow_cancel',
-            'title' => 'Cancel and Return to Main Menu',
+            'title' => 'إلغاء والعودة',
             'type' => 'reply',
-            'reply' => ['id' => 'flow_cancel', 'title' => 'Cancel and Return to Main Menu'],
+            'reply' => ['id' => 'flow_cancel', 'title' => 'إلغاء والعودة'],
         ];
 
-        $this->apiService->sendButtonMessage($phone, "Please select a patient:", $buttons);
+        $this->apiService->sendButtonMessage($phone, "يرجى اختيار المريض:", $buttons);
     }
 
     /**
@@ -261,12 +261,12 @@ class WhatsAppFlowService
         if ($isLatestChosen && $latestPatientId) {
             $patient = Patient::find($latestPatientId);
             if ($patient && $patient->is_blocked) {
-                $this->apiService->sendTextMessage($phone, "Sorry, this patient account is blocked. Please contact the clinic.");
+                $this->apiService->sendTextMessage($phone, "عذراً، هذا الحساب محظور من الحجز. يرجى التواصل مع إدارة العيادة.");
                 $this->resetToMainMenu($session, $phone);
                 return;
             }
 
-            // KVKK consent is required when reusing an existing patient
+            // Explicit consent is required for every booking, including existing patients
             $session->update([
                 'current_state' => 'AWAITING_KVKK_CONSENT',
                 'state_payload' => ['patient_id' => $patient->id],
@@ -276,7 +276,7 @@ class WhatsAppFlowService
         }
 
         // Choose to register new patient
-        $isNewPatientChosen = ($choice === 'patient_new' || $choice === 'new_patient') ||
+        $isNewPatientChosen = ($choice === 'patient_new' || $choice === 'new_patient' || $choice === 'تسجيل مريض جديد') ||
             (!$latestPatientId && $choice === '1') ||
             ($latestPatientId && $choice === '2');
 
@@ -285,7 +285,7 @@ class WhatsAppFlowService
                 'current_state' => 'AWAITING_NEW_PATIENT_NAME',
                 'state_payload' => [],
             ]);
-            $this->apiService->sendTextMessage($phone, "Please enter the patient's full name:");
+            $this->apiService->sendTextMessage($phone, "يرجى إدخال الاسم الكامل للمريض:");
             return;
         }
 
@@ -300,7 +300,7 @@ class WhatsAppFlowService
     {
         $trimmedName = trim($name);
         if (mb_strlen($trimmedName) < 2) {
-            $this->apiService->sendTextMessage($phone, "Please enter a valid patient full name (at least 2 characters):");
+            $this->apiService->sendTextMessage($phone, "يرجى إدخال اسم صحيح للمريض (حرفان على الأقل):");
             return;
         }
 
@@ -313,51 +313,44 @@ class WhatsAppFlowService
             $patient = Patient::create([
                 'primary_phone' => $phone,
                 'full_name' => $trimmedName,
-                'kvkk_consent_accepted' => true,
-                'kvkk_consent_date' => Carbon::now(),
+                'kvkk_consent_accepted' => false,
             ]);
-        } else {
-            $patient->update([
-                'kvkk_consent_accepted' => true,
-                'kvkk_consent_date' => Carbon::now(),
-            ]);
-            $patient->touch();
         }
 
         // Touch to ensure this patient is the latest registered
         $patient->touch();
 
-        // Continue directly to clinic selection
+        // Require explicit consent before advancing to clinic selection
         $session->update([
-            'current_state' => 'SELECTING_SPECIALTY',
+            'current_state' => 'AWAITING_KVKK_CONSENT',
             'state_payload' => [
                 'patient_id' => $patient->id,
-                'kvkk_accepted' => true,
             ],
         ]);
 
-        $this->displaySpecialties($phone, $session, $patient->id);
+        $this->sendKvkkConsentMessage($session, $phone, ['patient_id' => $patient->id]);
     }
 
     /**
-     * Send KVKK Consent message with clean Yes / No reply buttons.
+     * Send explicit consent message informing the patient of storage/processing outside Turkey.
+     * Uses exactly two reply buttons: موافق and لا أوافق.
      */
     protected function sendKvkkConsentMessage(WhatsappSession $session, string $phone, array $payload): void
     {
-        $body = "In order to proceed with your booking, please confirm your consent to our Personal Data Protection (KVKK) policy.\n\nDo you agree to the KVKK policy?";
+        $body = "نحيطكم علماً بأنه سيتم تخزين ومعالجة بياناتكم الشخصية والطبية على خوادم خارج تركيا لغرض إدارة ومتابعة حجز المواعيد الطبية وفقاً لسياسة حماية البيانات الشخصية (KVKK).\n\nهل توافق على تخزين ومعالجة معلوماتك الشخصية والطبية خارج تركيا؟";
 
         $buttons = [
             [
                 'id' => 'kvkk_yes',
-                'title' => 'Yes',
+                'title' => 'موافق',
                 'type' => 'reply',
-                'reply' => ['id' => 'kvkk_yes', 'title' => 'Yes'],
+                'reply' => ['id' => 'kvkk_yes', 'title' => 'موافق'],
             ],
             [
                 'id' => 'kvkk_no',
-                'title' => 'No',
+                'title' => 'لا أوافق',
                 'type' => 'reply',
-                'reply' => ['id' => 'kvkk_no', 'title' => 'No'],
+                'reply' => ['id' => 'kvkk_no', 'title' => 'لا أوافق'],
             ],
         ];
 
@@ -365,11 +358,11 @@ class WhatsAppFlowService
     }
 
     /**
-     * Handle KVKK Consent response.
+     * Handle explicit consent response for medical data storage outside Turkey.
      */
     protected function handleKvkkConsent(WhatsappSession $session, string $phone, string $text, array $payload): void
     {
-        if (in_array(strtolower($text), ['kvkk_yes', 'yes', '1', 'نعم'])) {
+        if (in_array(strtolower($text), ['kvkk_yes', 'موافق', 'نعم', 'yes', '1'])) {
             $payload = array_merge($payload, ['kvkk_accepted' => true]);
             $patientId = $payload['patient_id'] ?? null;
 
@@ -393,13 +386,30 @@ class WhatsAppFlowService
                     'current_state' => 'AWAITING_NEW_PATIENT_NAME',
                     'state_payload' => $payload,
                 ]);
-                $this->apiService->sendTextMessage($phone, "Please enter the patient's full name:");
+                $this->apiService->sendTextMessage($phone, "يرجى إدخال الاسم الكامل للمريض:");
             }
-        } elseif (in_array(strtolower($text), ['kvkk_no', 'no', '2', 'لا'])) {
-            $this->apiService->sendTextMessage($phone, "Booking cancelled because KVKK consent was not provided.");
+        } elseif (in_array(strtolower($text), ['kvkk_no', 'لا أوافق', 'لا', 'no', '2'])) {
+            // Refusal: release any temporary slot hold, clear booking state, and return to main menu
+            if (!empty($payload['appointment_id'])) {
+                $holding = Appointment::find($payload['appointment_id']);
+                if ($holding && $holding->status === 'holding') {
+                    $holding->update([
+                        'status' => 'cancelled_by_patient',
+                        'cancellation_reason' => 'رفض المريض الموافقة على تخزين ومعالجة البيانات خارج تركيا',
+                        'cancelled_at' => Carbon::now(),
+                    ]);
+                }
+            }
+
+            $session->update([
+                'current_state' => 'MAIN_MENU',
+                'state_payload' => [],
+            ]);
+
+            $this->apiService->sendTextMessage($phone, "تم إلغاء عملية الحجز نظراً لعدم الموافقة على تخزين ومعالجة البيانات الطبية خارج تركيا.");
             $this->resetToMainMenu($session, $phone);
         } else {
-            // Re-prompt KVKK message
+            // Re-prompt consent message
             $this->sendKvkkConsentMessage($session, $phone, $payload);
         }
     }
@@ -412,17 +422,17 @@ class WhatsAppFlowService
     {
         $specialties = Specialty::where('is_active', true)->get();
         if ($specialties->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "No clinics are currently available for booking.");
+            $this->apiService->sendTextMessage($phone, "لا تتوفر عيادات متاحة للحجز حالياً.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
 
         $session->update([
             'current_state' => 'SELECTING_SPECIALTY',
-            'state_payload' => [
+            'state_payload' => array_merge($session->state_payload ?? [], [
                 'patient_id' => $patientId,
                 'specialty_ids' => $specialties->pluck('id')->toArray(),
-            ],
+            ]),
         ]);
 
         $rows = [];
@@ -430,8 +440,8 @@ class WhatsAppFlowService
             $rows[] = ['id' => 'clinic_' . $spec->id, 'title' => $spec->name];
         }
 
-        $sections = [['title' => 'Clinics', 'rows' => $rows]];
-        $this->apiService->sendListMessage($phone, "Please select a clinic:", "Select Clinic", $sections);
+        $sections = [['title' => 'العيادات المتاحة', 'rows' => $rows]];
+        $this->apiService->sendListMessage($phone, "يرجى اختيار العيادة:", "اختيار العيادة", $sections);
 
         // Separate cancel button outside the list
         $this->sendSeparateCancelButton($phone);
@@ -457,7 +467,7 @@ class WhatsAppFlowService
         }
 
         if (!$selectedId || !in_array($selectedId, $specialtyIds)) {
-            $this->apiService->sendTextMessage($phone, "Invalid clinic selection. Please select a clinic from the list.");
+            $this->apiService->sendTextMessage($phone, "اختيار غير صحيح. يرجى اختيار العيادة من القائمة.");
             $this->displaySpecialties($phone, $session, $payload['patient_id']);
             return;
         }
@@ -465,7 +475,7 @@ class WhatsAppFlowService
         $specialtyId = $selectedId;
         $doctors = Doctor::where('specialty_id', $specialtyId)->where('is_active', true)->get();
         if ($doctors->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "No doctors are currently available for this clinic.");
+            $this->apiService->sendTextMessage($phone, "لا يوجد أطباء متاحون في هذه العيادة حالياً.");
             $this->displaySpecialties($phone, $session, $payload['patient_id']);
             return;
         }
@@ -484,8 +494,8 @@ class WhatsAppFlowService
             $rows[] = ['id' => 'doctor_' . $doc->id, 'title' => trim("{$doc->full_name}{$title}")];
         }
 
-        $sections = [['title' => 'Doctors', 'rows' => $rows]];
-        $this->apiService->sendListMessage($phone, "Please select a doctor:", "Select Doctor", $sections);
+        $sections = [['title' => 'الأطباء المتاحون', 'rows' => $rows]];
+        $this->apiService->sendListMessage($phone, "يرجى اختيار الطبيب:", "اختيار الطبيب", $sections);
 
         // Separate cancel button outside the list
         $this->sendSeparateCancelButton($phone);
@@ -509,7 +519,7 @@ class WhatsAppFlowService
         }
 
         if (!$selectedId || !in_array($selectedId, $doctorIds)) {
-            $this->apiService->sendTextMessage($phone, "Invalid doctor selection. Please select a doctor from the list.");
+            $this->apiService->sendTextMessage($phone, "اختيار غير صحيح. يرجى اختيار الطبيب من القائمة.");
             return;
         }
 
@@ -518,7 +528,7 @@ class WhatsAppFlowService
         $availableDates = $this->bookingService->getAvailableDates($doctor, 8);
 
         if ($availableDates->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "No appointment dates are available for this doctor in the coming days.");
+            $this->apiService->sendTextMessage($phone, "لا تتوفر مواعيد متاحة لهذا الطبيب خلال الأيام القادمة.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
@@ -536,8 +546,8 @@ class WhatsAppFlowService
             $rows[] = ['id' => 'date_' . $d['date'], 'title' => "{$d['formatted']} ({$d['day_name']})"];
         }
 
-        $sections = [['title' => 'Available Dates', 'rows' => $rows]];
-        $this->apiService->sendListMessage($phone, "Please select a suitable appointment date:", "Select Date", $sections);
+        $sections = [['title' => 'التواريخ المتاحة', 'rows' => $rows]];
+        $this->apiService->sendListMessage($phone, "يرجى اختيار تاريخ الموعد المناسب:", "اختيار التاريخ", $sections);
 
         // Separate cancel button outside the list
         $this->sendSeparateCancelButton($phone);
@@ -561,7 +571,7 @@ class WhatsAppFlowService
         }
 
         if (!$selectedDate) {
-            $this->apiService->sendTextMessage($phone, "Invalid date selection. Please select a date from the list.");
+            $this->apiService->sendTextMessage($phone, "اختيار غير صحيح. يرجى اختيار التاريخ من القائمة.");
             return;
         }
 
@@ -569,7 +579,7 @@ class WhatsAppFlowService
         $slots = $this->bookingService->getAvailableSlots($doctor, $selectedDate);
 
         if ($slots->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "All slots for this date are fully booked. Please select another date.");
+            $this->apiService->sendTextMessage($phone, "جميع مواعيد هذا التاريخ محجوزة بالكامل. يرجى اختيار تاريخ آخر.");
             return;
         }
 
@@ -604,14 +614,14 @@ class WhatsAppFlowService
         }
 
         if ($page > 1) {
-            $rows[] = ['id' => 'slot_page_prev', 'title' => 'Previous Slots'];
+            $rows[] = ['id' => 'slot_page_prev', 'title' => 'السابق'];
         }
         if ($offset + count($pageSlots) < $totalSlots) {
-            $rows[] = ['id' => 'slot_page_next', 'title' => 'More Slots'];
+            $rows[] = ['id' => 'slot_page_next', 'title' => 'التالي'];
         }
 
-        $sections = [['title' => 'Available Times', 'rows' => $rows]];
-        $this->apiService->sendListMessage($phone, "Please select an available appointment time:", "Select Time", $sections);
+        $sections = [['title' => 'الأوقات المتاحة', 'rows' => $rows]];
+        $this->apiService->sendListMessage($phone, "يرجى اختيار وقت الموعد المتاح:", "اختيار الوقت", $sections);
 
         // Separate cancel button outside the list
         $this->sendSeparateCancelButton($phone);
@@ -643,7 +653,7 @@ class WhatsAppFlowService
         }
 
         if (!isset($slots[$index])) {
-            $this->apiService->sendTextMessage($phone, "Invalid time slot selected. Please choose a slot from the list.");
+            $this->apiService->sendTextMessage($phone, "الوقت المختار غير صحيح. يرجى اختيار الوقت من القائمة.");
             return;
         }
 
@@ -682,29 +692,29 @@ class WhatsAppFlowService
                 ]),
             ]);
 
-            $clinicName = $doctor->specialty?->name ?? 'Clinic';
+            $clinicName = $doctor->specialty?->name ?? ClinicSetting::get('clinic_name', 'عيادة الشفاء الطبية');
 
-            $reviewMsg = "Appointment Details\n\n" .
-                "Patient: {$patient->full_name}\n" .
-                "Clinic: {$clinicName}\n" .
-                "Doctor: {$doctor->full_name}\n" .
-                "Date: {$payload['selected_date']}\n" .
-                "Time: {$slot['display']}\n\n" .
-                "Please review the appointment details.\n\n" .
-                "Do you want to proceed?";
+            $reviewMsg = "تفاصيل الموعد\n\n" .
+                "المريض: {$patient->full_name}\n" .
+                "العيادة: {$clinicName}\n" .
+                "الطبيب: {$doctor->full_name}\n" .
+                "التاريخ: {$payload['selected_date']}\n" .
+                "الوقت: {$slot['display']}\n\n" .
+                "يرجى مراجعة تفاصيل الموعد أعلاه.\n\n" .
+                "هل ترغب في تأكيد الحجز؟";
 
             $buttons = [
                 [
                     'id' => 'booking_yes',
-                    'title' => 'Yes',
+                    'title' => 'نعم',
                     'type' => 'reply',
-                    'reply' => ['id' => 'booking_yes', 'title' => 'Yes'],
+                    'reply' => ['id' => 'booking_yes', 'title' => 'نعم'],
                 ],
                 [
                     'id' => 'booking_no',
-                    'title' => 'No',
+                    'title' => 'لا',
                     'type' => 'reply',
-                    'reply' => ['id' => 'booking_no', 'title' => 'No'],
+                    'reply' => ['id' => 'booking_no', 'title' => 'لا'],
                 ],
             ];
 
@@ -731,12 +741,12 @@ class WhatsAppFlowService
 
         // Disallow selecting another slot while a pending confirmation is active
         if (Str::startsWith($choice, 'slot_')) {
-            $this->apiService->sendTextMessage($phone, "You have a pending appointment confirmation. Please reply Yes to confirm or No to cancel.");
+            $this->apiService->sendTextMessage($phone, "لديك حجز معلق بانتظار التأكيد. يرجى الضغط على نعم للتأكيد أو لا للإلغاء.");
             $buttons = [
-                ['id' => 'booking_yes', 'title' => 'Yes', 'type' => 'reply', 'reply' => ['id' => 'booking_yes', 'title' => 'Yes']],
-                ['id' => 'booking_no', 'title' => 'No', 'type' => 'reply', 'reply' => ['id' => 'booking_no', 'title' => 'No']],
+                ['id' => 'booking_yes', 'title' => 'نعم', 'type' => 'reply', 'reply' => ['id' => 'booking_yes', 'title' => 'نعم']],
+                ['id' => 'booking_no', 'title' => 'لا', 'type' => 'reply', 'reply' => ['id' => 'booking_no', 'title' => 'لا']],
             ];
-            $this->apiService->sendButtonMessage($phone, "Do you want to proceed with your booking?", $buttons);
+            $this->apiService->sendButtonMessage($phone, "هل ترغب في تأكيد حجز الموعد؟", $buttons);
             return;
         }
 
@@ -771,7 +781,7 @@ class WhatsAppFlowService
             }
 
             if (!$appointment || $appointment->status !== 'holding') {
-                $this->apiService->sendTextMessage($phone, "The reservation is no longer pending. Please start a new booking.");
+                $this->apiService->sendTextMessage($phone, "لم يعد الحجز معلقاً. يرجى بدء حجز جديد.");
                 $this->resetToMainMenu($session, $phone);
                 return;
             }
@@ -783,7 +793,7 @@ class WhatsAppFlowService
                     'cancellation_reason' => 'Reservation expired',
                     'cancelled_at' => Carbon::now(),
                 ]);
-                $this->apiService->sendTextMessage($phone, "Your temporary reservation has expired. Please select an available appointment time again.");
+                $this->apiService->sendTextMessage($phone, "انتهت صلاحية الحجز المؤقت. يرجى اختيار وقت متاح مجدداً.");
                 // Return to slot selection
                 $this->handleSelectDate($session, $phone, 'date_' . $payload['selected_date'], $payload);
                 return;
@@ -800,7 +810,7 @@ class WhatsAppFlowService
                 // Update patient touched timestamp
                 $confirmed->patient?->touch();
 
-                // Send clean professional confirmation message
+                // Send clean professional confirmation message in Arabic
                 $this->sendConfirmationSuccessMessage($phone, $confirmed, $payload['slot_display'] ?? null);
 
                 // Clear pending booking state and automatically display main menu
@@ -819,52 +829,52 @@ class WhatsAppFlowService
 
         // Any other unrecognized input: re-prompt confirmation without cancelling
         $buttons = [
-            ['id' => 'booking_yes', 'title' => 'Yes', 'type' => 'reply', 'reply' => ['id' => 'booking_yes', 'title' => 'Yes']],
-            ['id' => 'booking_no', 'title' => 'No', 'type' => 'reply', 'reply' => ['id' => 'booking_no', 'title' => 'No']],
+            ['id' => 'booking_yes', 'title' => 'نعم', 'type' => 'reply', 'reply' => ['id' => 'booking_yes', 'title' => 'نعم']],
+            ['id' => 'booking_no', 'title' => 'لا', 'type' => 'reply', 'reply' => ['id' => 'booking_no', 'title' => 'لا']],
         ];
-        $this->apiService->sendButtonMessage($phone, "Please review your appointment details and select Yes to proceed or No to cancel:", $buttons);
+        $this->apiService->sendButtonMessage($phone, "يرجى مراجعة تفاصيل الموعد واختيار نعم للمتابعة أو لا للإلغاء:", $buttons);
     }
 
     /**
-     * Send final confirmation message in clean, professional plain text.
+     * Send final confirmation message in clean, professional plain Arabic text.
      */
     protected function sendConfirmationSuccessMessage(string $phone, Appointment $appointment, ?string $slotDisplay = null): void
     {
-        $clinicName = $appointment->doctor->specialty?->name ?? ClinicSetting::get('clinic_name', 'Al-Shifa Medical Clinic');
+        $clinicName = $appointment->doctor->specialty?->name ?? ClinicSetting::get('clinic_name', 'عيادة الشفاء الطبية');
         $timeDisplay = $slotDisplay ?: (substr($appointment->start_time, 0, 5) . ' - ' . substr($appointment->end_time, 0, 5));
         $dateDisplay = Carbon::parse($appointment->appointment_date)->format('Y-m-d');
 
-        $msg = "Your appointment has been confirmed successfully.\n\n" .
-            "Appointment Details\n\n" .
-            "Patient: {$appointment->patient->full_name}\n" .
-            "Clinic: {$clinicName}\n" .
-            "Doctor: {$appointment->doctor->full_name}\n" .
-            "Date: {$dateDisplay}\n" .
-            "Time: {$timeDisplay}\n\n" .
-            "Thank you for choosing Al-Shifa Medical Clinic.";
+        $msg = "تم تأكيد موعدك بنجاح.\n\n" .
+            "تفاصيل الموعد\n\n" .
+            "المريض: {$appointment->patient->full_name}\n" .
+            "العيادة: {$clinicName}\n" .
+            "الطبيب: {$appointment->doctor->full_name}\n" .
+            "التاريخ: {$dateDisplay}\n" .
+            "الوقت: {$timeDisplay}\n\n" .
+            "شكراً لاختياركم عيادة الشفاء الطبية.";
 
         $this->apiService->sendTextMessage($phone, $msg);
     }
 
     /**
-     * Send separate cancel button below a list message.
+     * Send separate cancel button below a list message in Arabic.
      */
     protected function sendSeparateCancelButton(string $phone): void
     {
         $buttons = [
             [
                 'id' => 'flow_cancel',
-                'title' => 'Cancel and Return to Main Menu',
+                'title' => 'إلغاء والعودة',
                 'type' => 'reply',
-                'reply' => ['id' => 'flow_cancel', 'title' => 'Cancel and Return to Main Menu'],
+                'reply' => ['id' => 'flow_cancel', 'title' => 'إلغاء والعودة'],
             ],
         ];
 
-        $this->apiService->sendButtonMessage($phone, "To cancel and return to the main menu:", $buttons);
+        $this->apiService->sendButtonMessage($phone, "للإلغاء والعودة إلى القائمة الرئيسية:", $buttons);
     }
 
     /**
-     * Show upcoming confirmed appointments.
+     * Show upcoming confirmed appointments in Arabic.
      */
     protected function showUpcomingAppointments(WhatsappSession $session, string $phone): void
     {
@@ -878,21 +888,21 @@ class WhatsAppFlowService
             ->get();
 
         if ($appointments->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "You do not have any upcoming confirmed appointments.");
+            $this->apiService->sendTextMessage($phone, "لا توجد لديك أي مواعيد مؤكدة قادمة.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
 
-        $msg = "Upcoming Appointments\n\n";
+        $msg = "المواعيد القادمة\n\n";
         foreach ($appointments as $idx => $a) {
             $num = $idx + 1;
-            $clinicName = $a->doctor->specialty?->name ?? 'Clinic';
-            $msg .= "{$num}. Reference: {$a->reference_code}\n" .
-                "Patient: {$a->patient->full_name}\n" .
-                "Clinic: {$clinicName}\n" .
-                "Doctor: {$a->doctor->full_name}\n" .
-                "Date: {$a->appointment_date->format('Y-m-d')}\n" .
-                "Time: " . substr($a->start_time, 0, 5) . " - " . substr($a->end_time, 0, 5) . "\n\n";
+            $clinicName = $a->doctor->specialty?->name ?? ClinicSetting::get('clinic_name', 'عيادة الشفاء الطبية');
+            $msg .= "{$num}. الرقم المرجعي: {$a->reference_code}\n" .
+                "المريض: {$a->patient->full_name}\n" .
+                "العيادة: {$clinicName}\n" .
+                "الطبيب: {$a->doctor->full_name}\n" .
+                "التاريخ: {$a->appointment_date->format('Y-m-d')}\n" .
+                "الوقت: " . substr($a->start_time, 0, 5) . " - " . substr($a->end_time, 0, 5) . "\n\n";
         }
 
         $this->apiService->sendTextMessage($phone, trim($msg));
@@ -900,7 +910,7 @@ class WhatsAppFlowService
     }
 
     /**
-     * Step: Cancellation Flow.
+     * Step: Cancellation Flow in Arabic.
      */
     protected function initiateCancellationFlow(WhatsappSession $session, string $phone): void
     {
@@ -914,7 +924,7 @@ class WhatsAppFlowService
             ->get();
 
         if ($appointments->isEmpty()) {
-            $this->apiService->sendTextMessage($phone, "You do not have any active appointments that can be cancelled.");
+            $this->apiService->sendTextMessage($phone, "لا توجد لديك مواعيد نشطة يمكن إلغاؤها.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
@@ -926,17 +936,17 @@ class WhatsAppFlowService
             ],
         ]);
 
-        $msg = "Please reply with the number of the appointment you wish to cancel:\n\n";
+        $msg = "يرجى الرد برقم الموعد الذي ترغب في إلغائه:\n\n";
         foreach ($appointments as $idx => $a) {
             $num = $idx + 1;
-            $msg .= "{$num}. Reference: [{$a->reference_code}] with {$a->doctor->full_name} on {$a->appointment_date->format('Y-m-d')} at " . substr($a->start_time, 0, 5) . "\n";
+            $msg .= "{$num}. المرجع: [{$a->reference_code}] مع د. {$a->doctor->full_name} بتاريخ {$a->appointment_date->format('Y-m-d')} الساعة " . substr($a->start_time, 0, 5) . "\n";
         }
 
         $this->apiService->sendTextMessage($phone, trim($msg));
     }
 
     /**
-     * Handle Cancel Appointment Choice.
+     * Handle Cancel Appointment Choice in Arabic.
      */
     protected function handleSelectCancelAppointment(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
@@ -944,13 +954,13 @@ class WhatsAppFlowService
         $index = ((int) $choice) - 1;
 
         if (!isset($cancellableIds[$index])) {
-            $this->apiService->sendTextMessage($phone, "Invalid selection. Please reply with the number of the appointment to cancel.");
+            $this->apiService->sendTextMessage($phone, "اختيار غير صحيح. يرجى إرسال رقم الموعد المراد إلغاؤه من القائمة.");
             return;
         }
 
         $appointment = Appointment::find($cancellableIds[$index]);
         if (!$appointment) {
-            $this->apiService->sendTextMessage($phone, "The appointment was not found. Please try again.");
+            $this->apiService->sendTextMessage($phone, "لم يتم العثور على الموعد. يرجى المحاولة مرة أخرى.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
@@ -960,17 +970,17 @@ class WhatsAppFlowService
             'state_payload' => ['appointment_id' => $appointment->id],
         ]);
 
-        $confirmMsg = "Are you sure you want to cancel your appointment [{$appointment->reference_code}] with {$appointment->doctor->full_name} on {$appointment->appointment_date->format('Y-m-d')}?";
+        $confirmMsg = "هل أنت متأكد من رغبتك في إلغاء الموعد [{$appointment->reference_code}] مع د. {$appointment->doctor->full_name} بتاريخ {$appointment->appointment_date->format('Y-m-d')}؟";
         $buttons = [
-            ['id' => 'cancel_yes', 'title' => 'Yes', 'type' => 'reply', 'reply' => ['id' => 'cancel_yes', 'title' => 'Yes']],
-            ['id' => 'cancel_no', 'title' => 'No', 'type' => 'reply', 'reply' => ['id' => 'cancel_no', 'title' => 'No']],
+            ['id' => 'cancel_yes', 'title' => 'نعم', 'type' => 'reply', 'reply' => ['id' => 'cancel_yes', 'title' => 'نعم']],
+            ['id' => 'cancel_no', 'title' => 'لا', 'type' => 'reply', 'reply' => ['id' => 'cancel_no', 'title' => 'لا']],
         ];
 
         $this->apiService->sendButtonMessage($phone, $confirmMsg, $buttons);
     }
 
     /**
-     * Handle Confirmation of Cancellation.
+     * Handle Confirmation of Cancellation in Arabic.
      */
     protected function handleConfirmCancellation(WhatsappSession $session, string $phone, string $choice, array $payload): void
     {
@@ -978,38 +988,38 @@ class WhatsAppFlowService
         $appointment = Appointment::find($appointmentId);
 
         if (!$appointment) {
-            $this->apiService->sendTextMessage($phone, "The appointment was not found or was already removed.");
+            $this->apiService->sendTextMessage($phone, "لم يتم العثور على الموعد أو تم حذفه مسبقاً.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
 
         $patient = $appointment->patient;
         if (!$patient || $patient->primary_phone !== $phone) {
-            $this->apiService->sendTextMessage($phone, "You are not authorized to cancel this appointment.");
+            $this->apiService->sendTextMessage($phone, "غير مصرح لك بإلغاء هذا الموعد.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
 
         $nonCancellable = ['cancelled_by_patient', 'cancelled_by_clinic', 'completed'];
         if (in_array($appointment->status, $nonCancellable)) {
-            $this->apiService->sendTextMessage($phone, "This appointment cannot be cancelled.");
+            $this->apiService->sendTextMessage($phone, "لا يمكن إلغاء هذا الموعد حالياً.");
             $this->resetToMainMenu($session, $phone);
             return;
         }
 
-        if (in_array(strtolower($choice), ['cancel_yes', 'yes', '1'])) {
+        if (in_array(strtolower($choice), ['cancel_yes', 'yes', '1', 'نعم'])) {
             try {
-                $this->bookingService->cancelAppointment($appointment, 'Cancelled by patient via WhatsApp', 'patient');
-                $msg = "Your appointment [{$appointment->reference_code}] with {$appointment->doctor->full_name} on {$appointment->appointment_date->format('Y-m-d')} at " . substr($appointment->start_time, 0, 5) . " has been cancelled.";
+                $this->bookingService->cancelAppointment($appointment, 'إلغاء عبر بوت الواتساب بناءً على طلب المريض', 'patient');
+                $msg = "تم إلغاء موعدك [{$appointment->reference_code}] مع د. {$appointment->doctor->full_name} بتاريخ {$appointment->appointment_date->format('Y-m-d')} الساعة " . substr($appointment->start_time, 0, 5) . " بنجاح.";
                 $this->apiService->sendTextMessage($phone, $msg);
             } catch (Throwable $e) {
-                $this->apiService->sendTextMessage($phone, "Unable to cancel appointment: " . $e->getMessage());
+                $this->apiService->sendTextMessage($phone, "تعذر إلغاء الموعد: " . $e->getMessage());
             }
             $this->resetToMainMenu($session, $phone);
             return;
         }
 
-        $this->apiService->sendTextMessage($phone, "Cancellation was aborted. Returning to main menu.");
+        $this->apiService->sendTextMessage($phone, "تم التراجع عن الإلغاء. العودة إلى القائمة الرئيسية.");
         $this->resetToMainMenu($session, $phone);
     }
 }

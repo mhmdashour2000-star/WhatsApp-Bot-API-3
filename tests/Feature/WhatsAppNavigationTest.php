@@ -47,16 +47,129 @@ class WhatsAppNavigationTest extends TestCase
         });
         $this->sentMessages = [];
     }
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
 
     protected function makeFlowService(int $slotCount = 10, ?AppointmentBookingService $bookingService = null): WhatsAppFlowService
     {
         if ($bookingService) {
             return new WhatsAppFlowService($this->fakeApi, $bookingService);
-        }
+            /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
 
         $bookingMock = Mockery::mock(AppointmentBookingService::class);
         $bookingMock->shouldReceive('getAvailableDates')->andReturn(collect([
-            ['date' => '2026-11-08', 'day_name' => 'Sunday', 'formatted' => '2026-11-08'],
+            ['date' => '2026-11-08', 'day_name' => 'الأحد', 'formatted' => '2026-11-08'],
         ]));
 
         $slots = [];
@@ -68,7 +181,63 @@ class WhatsAppNavigationTest extends TestCase
                 'start_time' => "08:{$formattedIndex}:00",
                 'end_time' => "08:{$nextIndex}:00",
             ];
-        }
+            /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
 
         $bookingMock->shouldReceive('getAvailableSlots')->andReturn(collect($slots));
         $bookingMock->shouldReceive('holdSlot')->andReturnUsing(function ($patient, $doctor, $date, $start, $end, $src) {
@@ -93,9 +262,65 @@ class WhatsAppNavigationTest extends TestCase
         });
 
         return new WhatsAppFlowService($this->fakeApi, $bookingMock);
-    }
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
 
-    /** 1. Main menu displays the three required buttons */
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+
+    /** 1. Main menu displays the three required buttons in Arabic */
     public function testMainMenuDisplaysTheThreeRequiredButtons(): void
     {
         $flow = $this->makeFlowService();
@@ -105,8 +330,8 @@ class WhatsAppNavigationTest extends TestCase
         $last = end($this->sentMessages);
 
         $this->assertEquals('button', $last['type']);
-        $this->assertStringContainsString("Welcome to Al-Shifa Medical Clinic.", $last['body']);
-        $this->assertStringContainsString("This bot helps you manage your clinic appointments. Please select one of the options below.", $last['body']);
+        $this->assertStringContainsString("مرحباً بكم في عيادة الشفاء الطبية.", $last['body']);
+        $this->assertStringContainsString("تتيح لكم هذه الخدمة إدارة مواعيدكم الطبية بكل سهولة.", $last['body']);
 
         $buttons = $last['buttons'];
         $this->assertCount(3, $buttons);
@@ -116,27 +341,83 @@ class WhatsAppNavigationTest extends TestCase
         $btn3 = $buttons[2]['reply'] ?? $buttons[2];
 
         $this->assertEquals('main_new_appointment', $btn1['id']);
-        $this->assertEquals('New Appointment', $btn1['title']);
+        $this->assertEquals('حجز موعد جديد', $btn1['title']);
 
         $this->assertEquals('main_view_appointments', $btn2['id']);
-        $this->assertEquals('View / Reschedule Appointments', $btn2['title']);
+        $this->assertEquals('استعراض المواعيد', $btn2['title']);
 
         $this->assertEquals('main_cancel_appointments', $btn3['id']);
-        $this->assertEquals('Cancel Active Appointments', $btn3['title']);
-    }
+        $this->assertEquals('إلغاء موعد نشط', $btn3['title']);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
 
-    /** 2. Patient selection displays only the latest patient */
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+
+    /** 2. Patient selection displays only the latest patient in Arabic */
     public function testPatientSelectionDisplaysOnlyTheLatestPatient(): void
     {
         $phone = '905559998877';
         $olderPatient = Patient::factory()->create([
             'primary_phone' => $phone,
-            'full_name' => 'First Older Patient',
+            'full_name' => 'خالد السعيد',
             'updated_at' => Carbon::now()->subDays(2),
         ]);
         $latestPatient = Patient::factory()->create([
             'primary_phone' => $phone,
-            'full_name' => 'Latest Active Patient',
+            'full_name' => 'سامي العلي',
             'updated_at' => Carbon::now(),
         ]);
 
@@ -145,7 +426,7 @@ class WhatsAppNavigationTest extends TestCase
 
         $last = end($this->sentMessages);
         $this->assertEquals('button', $last['type']);
-        $this->assertStringContainsString('Please select a patient:', $last['body']);
+        $this->assertStringContainsString('يرجى اختيار المريض:', $last['body']);
 
         $buttons = $last['buttons'];
         $this->assertCount(3, $buttons);
@@ -156,15 +437,71 @@ class WhatsAppNavigationTest extends TestCase
 
         // Only the latest patient name is shown on Button 1
         $this->assertEquals('patient_latest', $btn1['id']);
-        $this->assertEquals('Latest Active Patient', $btn1['title']);
-        $this->assertNotEquals('First Older Patient', $btn1['title']);
+        $this->assertEquals('سامي العلي', $btn1['title']);
+        $this->assertNotEquals('خالد السعيد', $btn1['title']);
 
         $this->assertEquals('patient_new', $btn2['id']);
-        $this->assertEquals('Register New Patient', $btn2['title']);
+        $this->assertEquals('تسجيل مريض جديد', $btn2['title']);
 
         $this->assertEquals('flow_cancel', $btn3['id']);
-        $this->assertEquals('Cancel and Return to Main Menu', $btn3['title']);
+        $this->assertEquals('إلغاء والعودة', $btn3['title']);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
     }
+}
 
     /** 3. New patient registration updates the latest patient */
     public function testNewPatientRegistrationUpdatesTheLatestPatient(): void
@@ -178,12 +515,12 @@ class WhatsAppNavigationTest extends TestCase
 
         $last = end($this->sentMessages);
         $this->assertEquals('text', $last['type']);
-        $this->assertStringContainsString("Please enter the patient's full name:", $last['msg']);
+        $this->assertStringContainsString("يرجى إدخال الاسم الكامل للمريض:", $last['msg']);
 
         // Send new patient name
-        $flow->handle($phone, 'Tariq Al-Mansoor');
+        $flow->handle($phone, 'طارق المنصور');
 
-        $created = Patient::where('primary_phone', $phone)->where('full_name', 'Tariq Al-Mansoor')->first();
+        $created = Patient::where('primary_phone', $phone)->where('full_name', 'طارق المنصور')->first();
         $this->assertNotNull($created);
 
         // Next booking should now show Tariq as the latest patient
@@ -192,8 +529,64 @@ class WhatsAppNavigationTest extends TestCase
 
         $last = end($this->sentMessages);
         $btn1 = $last['buttons'][0]['reply'] ?? $last['buttons'][0];
-        $this->assertEquals('Tariq Al-Mansoor', $btn1['title']);
+        $this->assertEquals('طارق المنصور', $btn1['title']);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
     }
+}
 
     /** 4. No patient is displayed when no patient exists */
     public function testNoPatientIsDisplayedWhenNoPatientExists(): void
@@ -205,7 +598,7 @@ class WhatsAppNavigationTest extends TestCase
 
         $last = end($this->sentMessages);
         $this->assertEquals('button', $last['type']);
-        $this->assertStringContainsString('Please select a patient:', $last['body']);
+        $this->assertStringContainsString('يرجى اختيار المريض:', $last['body']);
 
         $buttons = $last['buttons'];
         // Should only have 2 buttons: Register New Patient & Cancel
@@ -215,13 +608,69 @@ class WhatsAppNavigationTest extends TestCase
         $btn2 = $buttons[1]['reply'] ?? $buttons[1];
 
         $this->assertEquals('patient_new', $btn1['id']);
-        $this->assertEquals('Register New Patient', $btn1['title']);
+        $this->assertEquals('تسجيل مريض جديد', $btn1['title']);
 
         $this->assertEquals('flow_cancel', $btn2['id']);
-        $this->assertEquals('Cancel and Return to Main Menu', $btn2['title']);
-    }
+        $this->assertEquals('إلغاء والعودة', $btn2['title']);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
 
-    /** 5. Clinic selection and separate cancel button work */
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+
+    /** 5. Clinic selection and separate cancel button work in Arabic */
     public function testClinicSelectionAndSeparateCancelButtonWork(): void
     {
         $phone = '905554445566';
@@ -237,7 +686,7 @@ class WhatsAppNavigationTest extends TestCase
             'state_payload' => ['latest_patient_id' => $patient->id],
         ]);
 
-        // Select latest patient -> prompts KVKK consent
+        // Select latest patient -> prompts explicit consent
         $flow->handle($phone, 'patient_latest');
         $flow->handle($phone, 'kvkk_yes');
 
@@ -249,7 +698,8 @@ class WhatsAppNavigationTest extends TestCase
         $btnMsg = $this->sentMessages[$count - 1];
 
         $this->assertEquals('list', $listMsg['type']);
-        $this->assertStringContainsString('Please select a clinic:', $listMsg['body']);
+        $this->assertStringContainsString('يرجى اختيار العيادة:', $listMsg['body']);
+        $this->assertEquals('اختيار العيادة', $listMsg['buttonText']);
 
         // Verify cancel is NOT inside list
         $listRowIds = array_column($listMsg['sections'][0]['rows'], 'id');
@@ -260,15 +710,71 @@ class WhatsAppNavigationTest extends TestCase
         $this->assertEquals('button', $btnMsg['type']);
         $cancelBtn = $btnMsg['buttons'][0]['reply'] ?? $btnMsg['buttons'][0];
         $this->assertEquals('flow_cancel', $cancelBtn['id']);
-        $this->assertEquals('Cancel and Return to Main Menu', $cancelBtn['title']);
+        $this->assertEquals('إلغاء والعودة', $cancelBtn['title']);
 
         // Pressing cancel returns to main menu
         $flow->handle($phone, 'flow_cancel');
         $session->refresh();
         $this->assertEquals('MAIN_MENU', $session->current_state);
-    }
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
 
-    /** 6. Doctor selection and separate cancel button work */
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+
+    /** 6. Doctor selection and separate cancel button work in Arabic */
     public function testDoctorSelectionAndSeparateCancelButtonWork(): void
     {
         $phone = '905555556677';
@@ -293,7 +799,8 @@ class WhatsAppNavigationTest extends TestCase
         $btnMsg = $this->sentMessages[$count - 1];
 
         $this->assertEquals('list', $listMsg['type']);
-        $this->assertStringContainsString('Please select a doctor:', $listMsg['body']);
+        $this->assertStringContainsString('يرجى اختيار الطبيب:', $listMsg['body']);
+        $this->assertEquals('اختيار الطبيب', $listMsg['buttonText']);
 
         $listRowIds = array_column($listMsg['sections'][0]['rows'], 'id');
         $this->assertNotContains('flow_cancel', $listRowIds);
@@ -301,14 +808,71 @@ class WhatsAppNavigationTest extends TestCase
         $this->assertEquals('button', $btnMsg['type']);
         $cancelBtn = $btnMsg['buttons'][0]['reply'] ?? $btnMsg['buttons'][0];
         $this->assertEquals('flow_cancel', $cancelBtn['id']);
+        $this->assertEquals('إلغاء والعودة', $cancelBtn['title']);
 
         // Cancel test
         $flow->handle($phone, 'flow_cancel');
         $session->refresh();
         $this->assertEquals('MAIN_MENU', $session->current_state);
-    }
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
 
-    /** 7. Date selection and cancellation work */
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+
+    /** 7. Date selection and cancellation work in Arabic */
     public function testDateSelectionAndCancellationWork(): void
     {
         $phone = '905556667788';
@@ -332,18 +896,76 @@ class WhatsAppNavigationTest extends TestCase
         $btnMsg = $this->sentMessages[$count - 1];
 
         $this->assertEquals('list', $listMsg['type']);
-        $this->assertStringContainsString('Please select a suitable appointment date:', $listMsg['body']);
+        $this->assertStringContainsString('يرجى اختيار تاريخ الموعد المناسب:', $listMsg['body']);
+        $this->assertEquals('اختيار التاريخ', $listMsg['buttonText']);
 
         $this->assertEquals('button', $btnMsg['type']);
         $cancelBtn = $btnMsg['buttons'][0]['reply'] ?? $btnMsg['buttons'][0];
         $this->assertEquals('flow_cancel', $cancelBtn['id']);
+        $this->assertEquals('إلغاء والعودة', $cancelBtn['title']);
 
         $flow->handle($phone, 'flow_cancel');
         $session->refresh();
         $this->assertEquals('MAIN_MENU', $session->current_state);
-    }
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
 
-    /** 8. Time selection and cancellation work */
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+
+    /** 8. Time selection and cancellation work in Arabic */
     public function testTimeSelectionAndCancellationWork(): void
     {
         $phone = '905557778899';
@@ -360,7 +982,7 @@ class WhatsAppNavigationTest extends TestCase
             'state_payload' => [
                 'patient_id' => $patient->id,
                 'doctor_id' => $doctor->id,
-                'available_dates' => [['date' => '2026-11-08', 'day_name' => 'Sunday', 'formatted' => '2026-11-08']],
+                'available_dates' => [['date' => '2026-11-08', 'day_name' => 'الأحد', 'formatted' => '2026-11-08']],
             ],
         ]);
 
@@ -371,22 +993,80 @@ class WhatsAppNavigationTest extends TestCase
         $btnMsg = $this->sentMessages[$count - 1];
 
         $this->assertEquals('list', $listMsg['type']);
-        $this->assertStringContainsString('Please select an available appointment time:', $listMsg['body']);
+        $this->assertStringContainsString('يرجى اختيار وقت الموعد المتاح:', $listMsg['body']);
+        $this->assertEquals('اختيار الوقت', $listMsg['buttonText']);
 
         $this->assertEquals('button', $btnMsg['type']);
         $cancelBtn = $btnMsg['buttons'][0]['reply'] ?? $btnMsg['buttons'][0];
         $this->assertEquals('flow_cancel', $cancelBtn['id']);
+        $this->assertEquals('إلغاء والعودة', $cancelBtn['title']);
 
         $flow->handle($phone, 'flow_cancel');
         $session->refresh();
         $this->assertEquals('MAIN_MENU', $session->current_state);
-    }
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
 
-    /** 9. Selecting a slot creates one temporary reservation */
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+
+    /** 9. Selecting a slot creates one temporary reservation in Arabic */
     public function testSelectingSlotCreatesOneTemporaryReservation(): void
     {
         $phone = '905558889900';
-        $patient = Patient::factory()->create(['primary_phone' => $phone, 'full_name' => 'Mohammed']);
+        $patient = Patient::factory()->create(['primary_phone' => $phone, 'full_name' => 'محمد السعيد']);
         $doctor = Doctor::first();
 
         $flow = $this->makeFlowService();
@@ -416,12 +1096,12 @@ class WhatsAppNavigationTest extends TestCase
         $this->assertNotNull($holding);
         $this->assertEquals('holding', $holding->status);
 
-        // Verify review confirmation message format
+        // Verify review confirmation message format in Arabic
         $last = end($this->sentMessages);
         $this->assertEquals('button', $last['type']);
-        $this->assertStringContainsString('Appointment Details', $last['body']);
-        $this->assertStringContainsString('Patient: Mohammed', $last['body']);
-        $this->assertStringContainsString('Do you want to proceed?', $last['body']);
+        $this->assertStringContainsString('تفاصيل الموعد', $last['body']);
+        $this->assertStringContainsString('المريض: محمد السعيد', $last['body']);
+        $this->assertStringContainsString('هل ترغب في تأكيد الحجز؟', $last['body']);
 
         $buttons = $last['buttons'];
         $this->assertCount(2, $buttons);
@@ -430,16 +1110,72 @@ class WhatsAppNavigationTest extends TestCase
         $btn2 = $buttons[1]['reply'] ?? $buttons[1];
 
         $this->assertEquals('booking_yes', $btn1['id']);
-        $this->assertEquals('Yes', $btn1['title']);
+        $this->assertEquals('نعم', $btn1['title']);
         $this->assertEquals('booking_no', $btn2['id']);
-        $this->assertEquals('No', $btn2['title']);
-    }
+        $this->assertEquals('لا', $btn2['title']);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
 
-    /** 10. Pressing Yes confirms the exact pending appointment */
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+
+    /** 10. Pressing Yes confirms the exact pending appointment in Arabic */
     public function testPressingYesConfirmsTheExactPendingAppointment(): void
     {
         $phone = '905559990011';
-        $patient = Patient::factory()->create(['primary_phone' => $phone, 'full_name' => 'Mohammed']);
+        $patient = Patient::factory()->create(['primary_phone' => $phone, 'full_name' => 'محمد']);
         $doctor = Doctor::first();
 
         $holdingAppt = Appointment::create([
@@ -476,26 +1212,82 @@ class WhatsAppNavigationTest extends TestCase
         $holdingAppt->refresh();
         $this->assertEquals('confirmed', $holdingAppt->status);
 
-        // Verify clean confirmation message
+        // Verify clean confirmation message in Arabic
         $count = count($this->sentMessages);
         $confMsg = $this->sentMessages[$count - 2];
         $mainMenuMsg = $this->sentMessages[$count - 1];
 
         $this->assertEquals('text', $confMsg['type']);
-        $this->assertStringContainsString('Your appointment has been confirmed successfully.', $confMsg['msg']);
-        $this->assertStringContainsString('Patient: Mohammed', $confMsg['msg']);
-        $this->assertStringContainsString('Date: 2026-11-08', $confMsg['msg']);
-        $this->assertStringContainsString('Time: 09:00 - 09:30', $confMsg['msg']);
-        $this->assertStringContainsString('Thank you for choosing Al-Shifa Medical Clinic.', $confMsg['msg']);
+        $this->assertStringContainsString('تم تأكيد موعدك بنجاح.', $confMsg['msg']);
+        $this->assertStringContainsString('المريض: محمد', $confMsg['msg']);
+        $this->assertStringContainsString('التاريخ: 2026-11-08', $confMsg['msg']);
+        $this->assertStringContainsString('الوقت: 09:00 - 09:30', $confMsg['msg']);
+        $this->assertStringContainsString('شكراً لاختياركم عيادة الشفاء الطبية.', $confMsg['msg']);
 
         // Main menu automatically displayed
         $this->assertEquals('button', $mainMenuMsg['type']);
-        $this->assertStringContainsString('Welcome to Al-Shifa Medical Clinic.', $mainMenuMsg['body']);
+        $this->assertStringContainsString('مرحباً بكم في عيادة الشفاء الطبية.', $mainMenuMsg['body']);
 
         $session->refresh();
         $this->assertEquals('MAIN_MENU', $session->current_state);
         $this->assertEmpty($session->state_payload);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
     }
+}
 
     /** 11. Pressing No releases the temporary reservation */
     public function testPressingNoReleasesTheTemporaryReservation(): void
@@ -538,13 +1330,69 @@ class WhatsAppNavigationTest extends TestCase
 
         $session->refresh();
         $this->assertEquals('MAIN_MENU', $session->current_state);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
     }
+}
 
     /** 12. Confirmation does not return to time selection */
     public function testConfirmationDoesNotReturnToTimeSelection(): void
     {
         $phone = '905551113344';
-        $patient = Patient::factory()->create(['primary_phone' => $phone, 'full_name' => 'Ahmad']);
+        $patient = Patient::factory()->create(['primary_phone' => $phone, 'full_name' => 'أحمد']);
         $doctor = Doctor::first();
 
         $holdingAppt = Appointment::create([
@@ -580,13 +1428,181 @@ class WhatsAppNavigationTest extends TestCase
         // Check that NO time selection list was sent
         foreach ($this->sentMessages as $msg) {
             if ($msg['type'] === 'list') {
-                $this->assertStringNotContainsString('Please select an available appointment time:', $msg['body']);
-            }
-        }
+                $this->assertStringNotContainsString('يرجى اختيار وقت الموعد المتاح:', $msg['body']);
+                /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+            /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
 
         $session->refresh();
         $this->assertEquals('MAIN_MENU', $session->current_state);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
     }
+}
 
     /** 13. Repeated webhook delivery does not create duplicate appointments */
     public function testRepeatedWebhookDeliveryDoesNotCreateDuplicateAppointments(): void
@@ -644,9 +1660,65 @@ class WhatsAppNavigationTest extends TestCase
         // Appointment count must remain unchanged
         $countAfterSecond = Appointment::where('patient_id', $patient->id)->count();
         $this->assertEquals($countAfterFirst, $countAfterSecond);
-    }
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
 
-    /** 14. KVKK consent remains required for every new booking */
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+
+    /** 14. Explicit consent for medical data storage outside Turkey required for every booking */
     public function testKvkkConsentRemainsRequiredForEveryNewBooking(): void
     {
         $phone = '905553335566';
@@ -661,19 +1733,274 @@ class WhatsAppNavigationTest extends TestCase
         // Select the existing patient
         $flow->handle($phone, 'patient_latest');
 
-        // Bot must NOT bypass KVKK consent even though patient already had consent
+        // Bot must NOT bypass consent and must explicitly mention medical data and storage outside Turkey
         $last = end($this->sentMessages);
         $this->assertEquals('button', $last['type']);
-        $this->assertStringContainsString('Personal Data Protection (KVKK)', $last['body']);
+        $this->assertStringContainsString('الطبية', $last['body']);
+        $this->assertStringContainsString('خارج تركيا', $last['body']);
 
         $btn1 = $last['buttons'][0]['reply'] ?? $last['buttons'][0];
         $btn2 = $last['buttons'][1]['reply'] ?? $last['buttons'][1];
         $this->assertEquals('kvkk_yes', $btn1['id']);
+        $this->assertEquals('موافق', $btn1['title']);
         $this->assertEquals('kvkk_no', $btn2['id']);
+        $this->assertEquals('لا أوافق', $btn2['title']);
 
         $session = WhatsappSession::where('phone_number', $phone)->first();
         $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
     }
+}
+
+    /** Focused test 1: Explicit consent refusal releases slot hold and returns to main menu */
+    public function testExplicitConsentRefusalReleasesHoldAndReturnsToMainMenu(): void
+    {
+        $phone = '905558881122';
+        $patient = Patient::factory()->create(['primary_phone' => $phone]);
+        $doctor = Doctor::first();
+
+        $holdingAppt = Appointment::create([
+            'reference_code' => 'AP-CONSENT-REFUSE',
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => '2026-11-08',
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+            'holding_expires_at' => Carbon::now()->addMinutes(10),
+            'source' => 'whatsapp',
+        ]);
+
+        $flow = $this->makeFlowService();
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'AWAITING_KVKK_CONSENT',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'appointment_id' => $holdingAppt->id,
+            ],
+        ]);
+
+        // Refuse consent
+        $flow->handle($phone, 'kvkk_no');
+
+        // Hold appointment must be cancelled
+        $holdingAppt->refresh();
+        $this->assertEquals('cancelled_by_patient', $holdingAppt->status);
+        $this->assertStringContainsString('خارج تركيا', $holdingAppt->cancellation_reason);
+
+        // Session reset to main menu
+        $session->refresh();
+        $this->assertEquals('MAIN_MENU', $session->current_state);
+        $this->assertEmpty($session->state_payload);
+
+        // Refusal message sent in Arabic
+        $last = $this->sentMessages[count($this->sentMessages) - 2];
+        $this->assertEquals('text', $last['type']);
+        $this->assertStringContainsString('تم إلغاء عملية الحجز نظراً لعدم الموافقة على تخزين ومعالجة البيانات الطبية خارج تركيا.', $last['msg']);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+
+    /** Focused test 2: Explicit consent acceptance advances flow and saves consent */
+    public function testExplicitConsentAcceptanceAdvancesFlowAndSavesConsent(): void
+    {
+        $phone = '905558882233';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+
+        $flow = $this->makeFlowService();
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'AWAITING_KVKK_CONSENT',
+            'state_payload' => ['patient_id' => $patient->id],
+        ]);
+
+        // Accept consent
+        $flow->handle($phone, 'kvkk_yes');
+
+        // Patient record updated
+        $patient->refresh();
+        $this->assertTrue($patient->kvkk_consent_accepted);
+        $this->assertNotNull($patient->kvkk_consent_date);
+
+        // Advanced to specialty selection
+        $session->refresh();
+        $this->assertEquals('SELECTING_SPECIALTY', $session->current_state);
+        $this->assertTrue($session->state_payload['kvkk_accepted']);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
 
     /** 15. Canceling the flow does not delete or cancel confirmed appointments */
     public function testCancelingFlowDoesNotDeleteConfirmedAppointments(): void
@@ -724,7 +2051,63 @@ class WhatsAppNavigationTest extends TestCase
 
         // Holding appointment is cancelled
         $this->assertEquals('cancelled_by_patient', $holdingAppt->fresh()->status);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
     }
+}
 
     /** 16. Expired reservations cannot be confirmed */
     public function testExpiredReservationsCannotBeConfirmed(): void
@@ -758,7 +2141,7 @@ class WhatsAppNavigationTest extends TestCase
                 'doctor_id' => $doctor->id,
                 'selected_date' => '2026-11-08',
                 'appointment_id' => $expiredAppt->id,
-                'available_dates' => [['date' => '2026-11-08', 'day_name' => 'Sunday', 'formatted' => '2026-11-08']],
+                'available_dates' => [['date' => '2026-11-08', 'day_name' => 'الأحد', 'formatted' => '2026-11-08']],
             ],
         ]);
 
@@ -769,16 +2152,184 @@ class WhatsAppNavigationTest extends TestCase
         $this->assertNotEquals('confirmed', $expiredAppt->status);
         $this->assertEquals('cancelled_by_clinic', $expiredAppt->status);
 
-        // User informed of expiration
+        // User informed of expiration in Arabic
         $hasExpirationMsg = false;
         foreach ($this->sentMessages as $m) {
-            if (isset($m['msg']) && str_contains($m['msg'], 'expired')) {
+            if (isset($m['msg']) && str_contains($m['msg'], 'انتهت صلاحية الحجز المؤقت')) {
                 $hasExpirationMsg = true;
                 break;
-            }
-        }
-        $this->assertTrue($hasExpirationMsg);
+                /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
     }
+}
+            /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+        $this->assertTrue($hasExpirationMsg);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
 
     /** 17. Slot selection does not process when bot expects confirmation */
     public function testCannotSelectAnotherSlotWhileConfirmationIsPending(): void
@@ -826,9 +2377,65 @@ class WhatsAppNavigationTest extends TestCase
         $this->assertEquals('CONFIRMING_BOOKING', $session->current_state);
         // Appointment ID must remain the same
         $this->assertEquals($holdingAppt->id, $session->state_payload['appointment_id']);
-    }
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
 
-    /** 18. Slot pagination traverses slots with separate cancel button */
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+
+    /** 18. Slot pagination traverses slots with separate cancel button in Arabic */
     public function testSlotPaginationTraversesSlotsWithSeparateCancelButton(): void
     {
         $totalSlots = 20;
@@ -846,7 +2453,7 @@ class WhatsAppNavigationTest extends TestCase
             'state_payload' => [
                 'patient_id' => $patient->id,
                 'doctor_id' => $doctor->id,
-                'available_dates' => [['date' => '2026-11-08', 'day_name' => 'Sunday', 'formatted' => '2026-11-08']],
+                'available_dates' => [['date' => '2026-11-08', 'day_name' => 'الأحد', 'formatted' => '2026-11-08']],
             ],
         ]);
 
@@ -870,6 +2477,7 @@ class WhatsAppNavigationTest extends TestCase
         $this->assertEquals('button', $btnMsg['type']);
         $cancelBtn = $btnMsg['buttons'][0]['reply'] ?? $btnMsg['buttons'][0];
         $this->assertEquals('flow_cancel', $cancelBtn['id']);
+        $this->assertEquals('إلغاء والعودة', $cancelBtn['title']);
 
         // Next page
         $flow->handle($patient->primary_phone, 'slot_page_next');
@@ -880,5 +2488,117 @@ class WhatsAppNavigationTest extends TestCase
 
         $page2Ids = array_column($page2Rows, 'id');
         $this->assertContains('slot_page_prev', $page2Ids);
+        /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
+    }
+}
+    /**
+     * Focused test: Confirm KVKK consent is persisted on the appointment record and a new booking again asks for consent.
+     */
+    public function testConfirmedAppointmentStoresKvkkConsentAtAppointmentLevelAndRequiresConsentOnNewBooking(): void
+    {
+        $phone = '905556667788';
+        $patient = Patient::factory()->create([
+            'primary_phone' => $phone,
+            'kvkk_consent_accepted' => false,
+        ]);
+        $doctor = Doctor::first();
+
+        // Create a holding appointment directly (status = holding)
+        $holdingAppt = Appointment::create([
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'appointment_date' => Carbon::today()->addDays(1)->toDateString(),
+            'start_time' => '10:00:00',
+            'end_time' => '10:30:00',
+            'status' => 'holding',
+        ]);
+
+        // Initialise session in confirmation state, mimicking flow after KVKK acceptance.
+        $session = WhatsappSession::firstOrCreate(
+            ['phone_number' => $phone],
+            ['current_state' => 'MAIN_MENU', 'state_payload' => []]
+        );
+        $session->update([
+            'current_state' => 'CONFIRMING_BOOKING',
+            'state_payload' => [
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'selected_date' => $holdingAppt->appointment_date,
+                'appointment_id' => $holdingAppt->id,
+                'slot_display' => $holdingAppt->start_time . ' - ' . $holdingAppt->end_time,
+                'kvkk_accepted' => true,
+            ],
+        ]);
+
+        $flow = $this->makeFlowService();
+        // Simulate user confirming the booking.
+        $flow->handle($phone, 'booking_yes');
+
+        // Refresh appointment and assert KVKK consent persisted on appointment.
+        $holdingAppt->refresh();
+        $this->assertTrue($holdingAppt->kvkk_consent_accepted);
+        $this->assertNotNull($holdingAppt->kvkk_consent_date);
+
+        // Start a second booking for the same patient.
+        $flow->handle($phone, 'main_new_appointment');
+        // Choose existing patient (latest)
+        $flow->handle($phone, 'patient_latest');
+        // Session should now be awaiting KVKK consent again.
+        $session->refresh();
+        $this->assertEquals('AWAITING_KVKK_CONSENT', $session->current_state);
     }
 }
